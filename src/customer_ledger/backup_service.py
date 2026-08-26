@@ -24,6 +24,41 @@ class BackupError(ValueError):
     """A safe, user-facing backup or restore failure."""
 
 
+def safety_lock_exists(path: str | Path) -> bool:
+    """Return whether the persistent write-protection marker exists."""
+
+    try:
+        return Path(path).resolve().exists()
+    except OSError as exc:
+        raise BackupError("无法检查账库保护状态，请停止记账并检查本机账库。") from exc
+
+
+def write_safety_lock(
+    path: str | Path,
+    *,
+    reason_code: str = "restore_rollback_failed",
+    error_category: str = "restore",
+) -> None:
+    """Persist a non-sensitive marker after an unrecoverable restore failure."""
+
+    target = Path(path).resolve()
+    temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    payload = {
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "reason_code": reason_code,
+        "error_category": error_category,
+    }
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(temporary, target)
+    except OSError as exc:
+        _remove_if_exists(temporary)
+        raise BackupError(
+            "恢复失败，且安全保护标记无法保存；请立即停止操作并检查本机账库。"
+        ) from exc
+
+
 @dataclass(frozen=True)
 class BackupManifest:
     manifest_filename: str
@@ -178,9 +213,15 @@ def validate_backup(
     return manifest
 
 
-def _unique_destination(directory: Path, reason: str) -> tuple[Path, Path]:
+def _unique_destination(
+    directory: Path,
+    reason: str,
+    *,
+    now_provider: Callable[[], datetime] | None = None,
+) -> tuple[Path, Path]:
     directory.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    current = now_provider() if now_provider is not None else datetime.now().astimezone()
+    stamp = current.astimezone().strftime("%Y%m%d-%H%M%S")
     safe_reason = _SAFE_REASON.sub("-", reason).strip("-") or "manual"
     base = f"{BACKUP_FILE_PREFIX}{stamp}-{safe_reason}"
     for counter in range(1000):
@@ -193,12 +234,18 @@ def _unique_destination(directory: Path, reason: str) -> tuple[Path, Path]:
 
 
 def _destination_for(
-    destination: str | Path | None, backup_dir: str | Path | None, reason: str
+    destination: str | Path | None,
+    backup_dir: str | Path | None,
+    reason: str,
+    *,
+    now_provider: Callable[[], datetime] | None = None,
 ) -> tuple[Path, Path]:
     if destination is None:
         if backup_dir is None:
             raise BackupError("未配置本机备份目录。")
-        return _unique_destination(Path(backup_dir).resolve(), reason)
+        return _unique_destination(
+            Path(backup_dir).resolve(), reason, now_provider=now_provider
+        )
     database = Path(destination).resolve()
     if database.suffix.casefold() != ".db":
         raise BackupError("备份文件必须使用 .db 格式。")
@@ -304,13 +351,19 @@ def create_backup(
     reason: str = "manual",
     app_version: str = "stage-4",
     prune: bool = True,
+    now_provider: Callable[[], datetime] | None = None,
 ) -> BackupManifest:
     """Create a consistent SQLite backup and its non-sensitive manifest."""
 
     source_path = _database_path(bind)
     if not source_path.is_file():
         raise BackupError("本机账库文件不存在，备份已阻止。")
-    database_path, manifest_path = _destination_for(destination, backup_dir, reason)
+    database_path, manifest_path = _destination_for(
+        destination,
+        backup_dir,
+        reason,
+        now_provider=now_provider,
+    )
     temporary = database_path.with_name(f".{database_path.name}.{uuid.uuid4().hex}.tmp")
     installed = False
     try:
@@ -322,7 +375,11 @@ def create_backup(
         manifest = BackupManifest(
             manifest_filename=manifest_path.name,
             database_filename=database_path.name,
-            created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            created_at=(
+                now_provider() if now_provider is not None else datetime.now().astimezone()
+            )
+            .astimezone()
+            .isoformat(timespec="seconds"),
             reason=reason,
             app_version=app_version,
             schema_version=schema_version,
@@ -355,9 +412,16 @@ def list_backups(backup_dir: str | Path) -> list[BackupManifest]:
     if not directory.is_dir():
         return []
     values: list[BackupManifest] = []
-    for path in directory.glob("*.json"):
+    for path in directory.glob(f"{BACKUP_FILE_PREFIX}*.json"):
         try:
             manifest = _read_manifest(path)
+            database_path = Path(manifest.database_filename)
+            if (
+                not manifest.database_filename.startswith(BACKUP_FILE_PREFIX)
+                or database_path.suffix.casefold() != ".db"
+                or database_path.stem != path.stem
+            ):
+                continue
             validate_backup(path)
         except (BackupError, OSError):
             try:
@@ -389,12 +453,18 @@ def restore_database(
     backup_dir: str | Path,
     app_version: str = "stage-4",
     post_restore_check: Callable[[], None] | None = None,
+    safety_lock_path: str | Path | None = None,
 ) -> RestoreResult:
     """Restore atomically, with a pre-restore backup available for rollback."""
 
     source_path = _database_path(bind)
     backup_root = Path(backup_dir).resolve()
     manifest_file = Path(manifest_path).resolve()
+    lock_path = (
+        Path(safety_lock_path).resolve()
+        if safety_lock_path is not None
+        else source_path.parent / "WRITE_BLOCKED"
+    )
     if manifest_file.parent != backup_root:
         raise BackupError("只能恢复应用备份目录中的备份文件。")
     current_schema = current_schema_version(source_path)
@@ -423,7 +493,7 @@ def restore_database(
         if post_restore_check is not None:
             post_restore_check()
         return RestoreResult(restored=selected, pre_restore=pre_restore)
-    except (BackupError, OSError, sqlite3.Error, ValueError) as exc:
+    except Exception as exc:
         _remove_if_exists(temporary)
         try:
             rollback_temp = source_path.with_name(
@@ -434,10 +504,16 @@ def restore_database(
             os.replace(rollback_temp, source_path)
             bind.dispose()
             _integrity_check(source_path)
-        except (OSError, sqlite3.Error, BackupError) as rollback_exc:
+        except Exception as rollback_exc:
             _remove_if_exists(locals().get("rollback_temp", source_path.with_suffix(".rollback")))
+            try:
+                write_safety_lock(lock_path)
+            except BackupError as lock_exc:
+                raise BackupError(
+                    "恢复失败，且自动回滚失败；安全保护标记也无法保存，请立即停止操作并检查本机账库。"
+                ) from lock_exc
             raise BackupError(
-                "恢复失败，且自动回滚失败；系统已阻止继续写入，请联系管理员检查本机账库。"
+                "恢复失败，且自动回滚失败；账库已进入保护状态，请停止继续记账并检查备份。"
             ) from rollback_exc
         raise BackupError("恢复失败，已自动回滚到恢复前状态。") from exc
     finally:

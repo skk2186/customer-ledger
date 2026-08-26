@@ -174,7 +174,13 @@ def _page_info(total: int, page: int, per_page: int) -> dict[str, int | bool]:
 def _backup_manifest_path(filename: str) -> Path:
     backup_dir = Path(current_app.config["BACKUP_DIR"]).resolve()
     candidate = (backup_dir / filename).resolve()
-    if candidate.parent != backup_dir or candidate.name != filename or candidate.suffix != ".json":
+    if (
+        candidate.parent != backup_dir
+        or candidate.name != filename
+        or candidate.suffix != ".json"
+        or not candidate.name.startswith("ledger-")
+        or not candidate.with_suffix(".db").is_file()
+    ):
         abort(404)
     if not candidate.is_file():
         abort(404)
@@ -438,11 +444,12 @@ def void_shipment_route(shipment_id: int):
 def customer_ledger(customer_id: int):
     customer = _customer_or_404(customer_id)
     per_page = int(current_app.config["LEDGER_PAGE_SIZE"])
-    requested_page = _page_number(request.args.get("page"))
+    requested_shipment_page = _page_number(request.args.get("shipment_page"))
+    requested_payment_page = _page_number(request.args.get("payment_page"))
     shipment_total = db.session.scalar(
         select(func.count(Shipment.id)).where(Shipment.customer_id == customer.id)
     )
-    shipment_page = _page_info(int(shipment_total or 0), requested_page, per_page)
+    shipment_page = _page_info(int(shipment_total or 0), requested_shipment_page, per_page)
     rows = customer_ledger_rows(
         db.session,
         customer.id,
@@ -453,7 +460,7 @@ def customer_ledger(customer_id: int):
     payment_total = db.session.scalar(
         select(func.count(Payment.id)).where(Payment.customer_id == customer.id)
     )
-    payment_page = _page_info(int(payment_total or 0), requested_page, per_page)
+    payment_page = _page_info(int(payment_total or 0), requested_payment_page, per_page)
     payments = db.session.scalars(
         select(Payment)
         .where(Payment.customer_id == customer.id)
@@ -575,6 +582,30 @@ def restore_backup(manifest_filename: str):
             backup=selected,
             error="请勾选二次确认后再恢复。",
         ), 400
+    def finalize_restore():
+        """Validate and record completion before restore_database reports success."""
+
+        try:
+            db.session.remove()
+            db.engine.dispose()
+            verify_accounting_identities(db.session)
+            add_system_audit(
+                db.session,
+                "restore",
+                "completed",
+                counts={"backups": 1},
+            )
+            db.session.commit()
+        except ValueError:
+            db.session.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            raise BackupError("恢复完成记录保存失败，已回滚到恢复前状态。") from exc
+        finally:
+            db.session.remove()
+            db.engine.dispose()
+
     try:
         db.session.rollback()
         db.session.remove()
@@ -584,16 +615,15 @@ def restore_backup(manifest_filename: str):
             manifest_path,
             backup_dir=current_app.config["BACKUP_DIR"],
             app_version=current_app.config["APP_VERSION"],
-            post_restore_check=lambda: verify_accounting_identities(db.session),
+            post_restore_check=finalize_restore,
+            safety_lock_path=current_app.config["SAFETY_LOCK_PATH"],
         )
         db.session.remove()
-        _record_system_audit(
-            "completed",
-            object_type="restore",
-            counts={"backups": 1},
-        )
+        db.engine.dispose()
     except (BackupError, OSError, ValueError) as exc:
         db.session.rollback()
+        db.session.remove()
+        db.engine.dispose()
         return _render_backups(f"恢复未完成：{exc}"), 503
     flash("账库已恢复，请重新核对客户账目和汇总。", "success")
     return redirect(url_for("main.backups"))

@@ -218,7 +218,7 @@ def test_ledger_pagination_is_stable(client, app):
                 "",
                 f"stage4-page-token-{index}",
             )
-        body = client.get(f"/customers/{customer.id}/ledger?page=2").get_data(as_text=True)
+        body = client.get(f"/customers/{customer.id}/ledger?shipment_page=2").get_data(as_text=True)
         assert "当前显示第 2 / 2 页" in body
         assert "下一页" not in body
         assert "上一页" in body

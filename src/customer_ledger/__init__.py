@@ -6,11 +6,16 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from sqlalchemy.exc import SQLAlchemyError
 
 from .audit_service import add_system_audit
-from .backup_service import BackupError, create_backup, has_valid_daily_backup
+from .backup_service import (
+    BackupError,
+    create_backup,
+    has_valid_daily_backup,
+    safety_lock_exists,
+)
 from .extensions import db, migrate
 
 
@@ -35,6 +40,10 @@ def create_app(test_config: dict | None = None) -> Flask:
             str(project_root / "runtime_data" / "import_reports"),
         ),
         BACKUP_DIR=os.environ.get("CUSTOMER_LEDGER_BACKUP_DIR", str(project_root / "backups")),
+        SAFETY_LOCK_PATH=os.environ.get(
+            "CUSTOMER_LEDGER_SAFETY_LOCK_PATH",
+            str(project_root / "runtime_data" / "WRITE_BLOCKED"),
+        ),
         APP_VERSION="stage-4",
         LEDGER_PAGE_SIZE=50,
         JSON_AS_ASCII=False,
@@ -58,13 +67,52 @@ def create_app(test_config: dict | None = None) -> Flask:
         cents = abs(cents)
         return f"{sign}{cents // 100}.{cents % 100:02d}"
 
+    try:
+        app.extensions["safety_locked"] = safety_lock_exists(app.config["SAFETY_LOCK_PATH"])
+    except BackupError:
+        app.extensions["safety_locked"] = True
     app.extensions["daily_backup_date"] = None
+
+    def _local_now() -> datetime:
+        provider = app.config.get("LOCAL_NOW_PROVIDER")
+        current = provider() if provider is not None else datetime.now().astimezone()
+        return current.astimezone()
+
+    @app.before_request
+    def _check_safety_lock():
+        """Block all state-changing requests while persistent protection is active."""
+
+        try:
+            locked = safety_lock_exists(app.config["SAFETY_LOCK_PATH"])
+        except BackupError:
+            locked = True
+        app.extensions["safety_locked"] = locked
+        locked_get_endpoints = {
+            "main.export_customer",
+            "main.export_summary",
+            "main.export_all_ledgers",
+        }
+        if locked and (
+            request.method not in {"GET", "HEAD", "OPTIONS"}
+            or request.endpoint in locked_get_endpoints
+        ):
+            return (
+                render_template(
+                    "error.html",
+                    title="账库处于保护状态",
+                    message="账库处于保护状态。上次恢复未能安全完成。请停止继续记账并检查备份。",
+                ),
+                503,
+            )
+        return None
 
     @app.before_request
     def _ensure_daily_backup():
         """Create one consistent local backup before the first request of each day."""
 
-        today = datetime.now().astimezone().date().isoformat()
+        if app.extensions.get("safety_locked"):
+            return None
+        today = _local_now().date().isoformat()
         if app.extensions.get("daily_backup_date") == today:
             return None
         if has_valid_daily_backup(app.config["BACKUP_DIR"], today):
@@ -76,6 +124,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 backup_dir=app.config["BACKUP_DIR"],
                 reason="daily_startup",
                 app_version=app.config["APP_VERSION"],
+                now_provider=_local_now,
             )
             db.session.rollback()
             add_system_audit(

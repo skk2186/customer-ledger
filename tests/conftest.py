@@ -14,6 +14,7 @@ def app(tmp_path):
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{database_path}",
             "BACKUP_DIR": str(tmp_path / "backups"),
+            "SAFETY_LOCK_PATH": str(tmp_path / "WRITE_BLOCKED"),
             "EXPORTS_DIR": str(tmp_path / "exports"),
             "IMPORT_REPORT_DIR": str(tmp_path / "import_reports"),
         }

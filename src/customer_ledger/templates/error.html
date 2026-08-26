@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - 客户快捷填表系统{% endblock %}
+{% block content %}
+<section class="empty">
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+    <a class="button" href="{{ url_for('main.index') }}">返回首页</a>
+</section>
+{% endblock %}

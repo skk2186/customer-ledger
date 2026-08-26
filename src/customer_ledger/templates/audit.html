@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}操作记录 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">留痕记录</p><h1>操作记录</h1></div></div>
+<p class="help">这里只显示操作时间、类型和结果摘要，不显示客户备注、金额明细或完整数据。</p>
+<div class="table-wrap">
+<table><thead><tr><th>时间</th><th>对象</th><th>操作</th></tr></thead><tbody>
+{% for row in audit_rows %}<tr><td>{{ row.created_at|replace('T', ' ') }}</td><td>{{ row.object_label }}</td><td>{{ row.action_label }}</td></tr>
+{% else %}<tr><td colspan="3" class="empty-cell">暂无操作记录。</td></tr>{% endfor %}
+</tbody></table>
+</div>
+{% endblock %}

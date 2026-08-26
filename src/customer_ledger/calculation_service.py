@@ -210,6 +210,26 @@ def customer_net_balance(session, customer: Customer) -> int:
     return customer_summary(session, customer.id).net_balance_cents
 
 
+def verify_accounting_identities(session) -> None:
+    """Raise when restored active data no longer satisfies the signed formulas."""
+
+    customers = session.scalars(select(Customer)).all()
+    for customer in customers:
+        summary = customer_summary(session, customer.id)
+        if summary.net_balance_cents != (
+            summary.total_receivable_cents
+            - summary.total_received_cents
+            - summary.total_rounding_cents
+        ):
+            raise ValueError("恢复后的客户余额校验失败。")
+        if summary.total_receivable_cents != (
+            summary.total_allocated_received_cents
+            + summary.total_shipment_balance_cents
+            + summary.total_rounding_cents
+        ):
+            raise ValueError("恢复后的发货合计校验失败。")
+
+
 def _rollup_summaries(summaries: list[CustomerSummary]) -> CustomerSummary:
     fields = (
         "total_goods_cents",
@@ -241,13 +261,20 @@ def summarize_customers(session, as_of: date) -> tuple[list[CustomerSummaryRow],
 
 
 def customer_ledger_rows(
-    session, customer_id: int, as_of: date | None = None
+    session,
+    customer_id: int,
+    as_of: date | None = None,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[ShipmentLedgerRow]:
     statement = select(Shipment).where(Shipment.customer_id == customer_id).order_by(
         Shipment.shipment_date.asc(), Shipment.id.asc()
     )
     if as_of is not None:
         statement = statement.where(Shipment.shipment_date <= as_of)
+    if limit is not None:
+        statement = statement.limit(limit).offset(offset)
     shipments = session.scalars(statement).all()
     rows = []
     for shipment in shipments:

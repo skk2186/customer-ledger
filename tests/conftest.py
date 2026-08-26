@@ -13,6 +13,9 @@ def app(tmp_path):
         {
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{database_path}",
+            "BACKUP_DIR": str(tmp_path / "backups"),
+            "EXPORTS_DIR": str(tmp_path / "exports"),
+            "IMPORT_REPORT_DIR": str(tmp_path / "import_reports"),
         }
     )
     with app.app_context():

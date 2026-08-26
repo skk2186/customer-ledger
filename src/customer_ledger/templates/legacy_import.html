@@ -97,8 +97,7 @@
     {% if dry_run.candidate_counts.pending_prepayment_rows > 0 %}
     <label><input type="checkbox" name="confirm_prepayments" value="yes"> 已核对并确认导入预收候选</label>
     {% endif %}
-    <label for="backup_path">备份文件位置（可选）</label>
-    <input id="backup_path" name="backup_path" placeholder="留空则保存到本机备份目录">
+    <p class="help">确认导入前系统会自动在本机备份目录保存当前账库，备份失败时不会写入导入数据。</p>
     <div class="form-actions"><button class="button" name="action" value="confirm" type="submit">确认导入</button></div>
 </form>
 {% endif %}

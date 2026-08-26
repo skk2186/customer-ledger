@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}备份恢复 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading">
+    <div><p class="eyebrow">数据保护</p><h1>备份恢复</h1></div>
+    <form method="post" action="{{ url_for('main.create_manual_backup') }}"><button class="button" type="submit">立即备份</button></form>
+</div>
+<p class="help">系统会在每天第一次打开时、导入旧账前、恢复前和导出前自动保存本机账库备份。</p>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<div class="table-wrap">
+<table>
+    <thead><tr><th>备份时间</th><th>备份原因</th><th>文件大小</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for backup in backups %}
+    <tr>
+        <td>{{ backup.created_at|replace('T', ' ') }}</td>
+        <td>{% if backup.reason == 'daily_startup' %}每日首次打开{% elif backup.reason == 'before_import' %}旧账导入前{% elif backup.reason == 'before_restore' %}恢复前{% elif backup.reason == 'before_export' %}导出前{% elif backup.reason == 'manual' %}手动备份{% else %}系统备份{% endif %}</td>
+        <td>{{ (backup.file_size_bytes / 1024)|round(1) }} KB</td>
+        <td><span class="status {{ 'active' if backup.valid else 'archived' }}">{{ backup.status }}</span></td>
+        <td>{% if backup.valid %}<a href="{{ url_for('main.restore_backup', manifest_filename=backup.manifest_filename) }}">恢复</a>{% else %}<span class="muted">不可恢复</span>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="5" class="empty-cell">暂无备份记录。</td></tr>{% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}

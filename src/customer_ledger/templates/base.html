@@ -12,8 +12,10 @@
         <nav class="top-nav">
             <a href="{{ url_for('main.new_shipment') }}">新增一笔</a>
             <a href="{{ url_for('main.summary') }}">客户汇总总表</a>
-            <a href="{{ url_for('main.legacy_import') }}">旧账迁移</a>
             <a href="{{ url_for('main.customers') }}">客户管理</a>
+            <a href="{{ url_for('main.backups') }}">备份恢复</a>
+            <a href="{{ url_for('main.audit') }}">操作记录</a>
+            <a class="subtle-nav" href="{{ url_for('main.legacy_import') }}">旧账迁移</a>
         </nav>
     </header>
     <main class="container">

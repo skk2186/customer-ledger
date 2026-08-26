@@ -17,9 +17,17 @@ from flask import (
     send_file,
     url_for,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from .audit_service import add_system_audit
+from .backup_service import (
+    BackupError,
+    create_backup,
+    list_backups,
+    restore_database,
+    validate_backup,
+)
 from .bookkeeping_service import (
     AllocationInput,
     BookkeepingError,
@@ -40,6 +48,7 @@ from .calculation_service import (
     customer_summary,
     payment_unallocated_cents,
     summarize_customers,
+    verify_accounting_identities,
 )
 from .customer_service import (
     BusinessError,
@@ -49,6 +58,7 @@ from .customer_service import (
     update_customer,
 )
 from .export_service import (
+    ExportError,
     export_all_ledger_workbook,
     export_customer_workbook,
     export_summary_workbook,
@@ -59,7 +69,7 @@ from .legacy_import_service import (
     confirm_legacy_import,
     dry_run_legacy_import,
 )
-from .models import Customer, Payment, PaymentAllocation, Shipment
+from .models import AuditEvent, Customer, Payment, PaymentAllocation, Shipment
 from .validation import (
     INITIAL_PAYMENT_OPTIONS,
     PAYMENT_METHODS,
@@ -109,6 +119,74 @@ def _safe_call(operation, *args):
     except SQLAlchemyError:
         db.session.rollback()
         return None, "保存失败，请稍后重试。"
+
+
+def _record_system_audit(action: str, *, object_type: str, counts=None) -> None:
+    try:
+        db.session.rollback()
+        add_system_audit(
+            db.session,
+            object_type,
+            action,
+            counts=counts,
+        )
+        db.session.commit()
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        raise BackupError("操作记录保存失败，已阻止后续操作。") from exc
+
+
+def _create_application_backup(reason: str):
+    try:
+        manifest = create_backup(
+            db.engine,
+            backup_dir=current_app.config["BACKUP_DIR"],
+            reason=reason,
+            app_version=current_app.config["APP_VERSION"],
+        )
+        _record_system_audit(reason, object_type="backup", counts={"files": 1})
+        return manifest
+    except BackupError:
+        db.session.rollback()
+        raise
+
+
+def _page_number(value: str | None) -> int:
+    try:
+        return max(int(value or "1"), 1)
+    except ValueError:
+        return 1
+
+
+def _page_info(total: int, page: int, per_page: int) -> dict[str, int | bool]:
+    total_pages = max((total + per_page - 1) // per_page, 1)
+    current = min(page, total_pages)
+    return {
+        "page": current,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": total_pages,
+        "has_prev": current > 1,
+        "has_next": current < total_pages,
+    }
+
+
+def _backup_manifest_path(filename: str) -> Path:
+    backup_dir = Path(current_app.config["BACKUP_DIR"]).resolve()
+    candidate = (backup_dir / filename).resolve()
+    if candidate.parent != backup_dir or candidate.name != filename or candidate.suffix != ".json":
+        abort(404)
+    if not candidate.is_file():
+        abort(404)
+    return candidate
+
+
+def _render_backups(error: str | None = None):
+    return render_template(
+        "backups.html",
+        backups=list_backups(current_app.config["BACKUP_DIR"]),
+        error=error,
+    )
 
 
 def _customer_or_404(customer_id: int) -> Customer:
@@ -359,12 +437,29 @@ def void_shipment_route(shipment_id: int):
 @main_bp.get("/customers/<int:customer_id>/ledger")
 def customer_ledger(customer_id: int):
     customer = _customer_or_404(customer_id)
-    rows = customer_ledger_rows(db.session, customer.id)
+    per_page = int(current_app.config["LEDGER_PAGE_SIZE"])
+    requested_page = _page_number(request.args.get("page"))
+    shipment_total = db.session.scalar(
+        select(func.count(Shipment.id)).where(Shipment.customer_id == customer.id)
+    )
+    shipment_page = _page_info(int(shipment_total or 0), requested_page, per_page)
+    rows = customer_ledger_rows(
+        db.session,
+        customer.id,
+        limit=per_page,
+        offset=(int(shipment_page["page"]) - 1) * per_page,
+    )
     summary = customer_summary(db.session, customer.id)
+    payment_total = db.session.scalar(
+        select(func.count(Payment.id)).where(Payment.customer_id == customer.id)
+    )
+    payment_page = _page_info(int(payment_total or 0), requested_page, per_page)
     payments = db.session.scalars(
         select(Payment)
         .where(Payment.customer_id == customer.id)
         .order_by(Payment.payment_date.desc(), Payment.id.desc())
+        .limit(per_page)
+        .offset((int(payment_page["page"]) - 1) * per_page)
     ).all()
     active_shipments = [row.shipment for row in rows if row.shipment.active]
     payment_rows = [
@@ -382,6 +477,8 @@ def customer_ledger(customer_id: int):
         summary=summary,
         payment_rows=payment_rows,
         active_shipments=active_shipments,
+        shipment_page=shipment_page,
+        payment_page=payment_page,
         token=_new_token(),
     )
 
@@ -394,9 +491,16 @@ def _export_path(filename: str):
 @main_bp.get("/customers/<int:customer_id>/export.xlsx")
 def export_customer(customer_id: int):
     customer = _customer_or_404(customer_id)
-    path = export_customer_workbook(
-        db.session, customer.id, _export_path(f"customer-{customer.id}.xlsx")
-    )
+    try:
+        _create_application_backup("before_export")
+        path = export_customer_workbook(
+            db.session, customer.id, _export_path(f"customer-{customer.id}.xlsx")
+        )
+    except BackupError as exc:
+        return f"导出未完成：{exc}", 503
+    except (ExportError, OSError):
+        db.session.rollback()
+        return "导出未完成，请检查本机导出目录后重试。", 400
     return send_file(path, as_attachment=True, download_name=f"{customer.name}.xlsx")
 
 
@@ -407,7 +511,14 @@ def export_summary():
         cutoff = parse_date(cutoff_raw, "截至日期")
     except ValidationError as exc:
         return str(exc), 400
-    path = export_summary_workbook(db.session, _export_path("customer-summary.xlsx"), cutoff)
+    try:
+        _create_application_backup("before_export")
+        path = export_summary_workbook(db.session, _export_path("customer-summary.xlsx"), cutoff)
+    except BackupError as exc:
+        return f"导出未完成：{exc}", 503
+    except (ExportError, OSError):
+        db.session.rollback()
+        return "导出未完成，请检查本机导出目录后重试。", 400
     return send_file(path, as_attachment=True, download_name="客户汇总总表.xlsx")
 
 
@@ -418,8 +529,125 @@ def export_all_ledgers():
         cutoff = parse_date(cutoff_raw, "截至日期")
     except ValidationError as exc:
         return str(exc), 400
-    path = export_all_ledger_workbook(db.session, _export_path("all-customer-ledgers.xlsx"), cutoff)
+    try:
+        _create_application_backup("before_export")
+        path = export_all_ledger_workbook(
+            db.session, _export_path("all-customer-ledgers.xlsx"), cutoff
+        )
+    except BackupError as exc:
+        return f"导出未完成：{exc}", 503
+    except (ExportError, OSError):
+        db.session.rollback()
+        return "导出未完成，请检查本机导出目录后重试。", 400
     return send_file(path, as_attachment=True, download_name="客户账目总表.xlsx")
+
+
+@main_bp.get("/backups")
+def backups():
+    return _render_backups()
+
+
+@main_bp.post("/backups/create")
+def create_manual_backup():
+    try:
+        _create_application_backup("manual")
+    except BackupError as exc:
+        return _render_backups(f"备份未完成：{exc}"), 503
+    flash("本机账库备份已保存。", "success")
+    return redirect(url_for("main.backups"))
+
+
+@main_bp.route("/backups/<path:manifest_filename>/restore", methods=["GET", "POST"])
+def restore_backup(manifest_filename: str):
+    manifest_path = _backup_manifest_path(manifest_filename)
+    try:
+        selected = validate_backup(
+            manifest_path,
+            expected_schema_version=_current_schema_version(),
+        )
+    except BackupError as exc:
+        return _render_backups(f"备份不可恢复：{exc}"), 400
+    if request.method == "GET":
+        return render_template("restore_confirm.html", backup=selected)
+    if request.form.get("confirm_restore") != "yes":
+        return render_template(
+            "restore_confirm.html",
+            backup=selected,
+            error="请勾选二次确认后再恢复。",
+        ), 400
+    try:
+        db.session.rollback()
+        db.session.remove()
+        db.engine.dispose()
+        restore_database(
+            db.engine,
+            manifest_path,
+            backup_dir=current_app.config["BACKUP_DIR"],
+            app_version=current_app.config["APP_VERSION"],
+            post_restore_check=lambda: verify_accounting_identities(db.session),
+        )
+        db.session.remove()
+        _record_system_audit(
+            "completed",
+            object_type="restore",
+            counts={"backups": 1},
+        )
+    except (BackupError, OSError, ValueError) as exc:
+        db.session.rollback()
+        return _render_backups(f"恢复未完成：{exc}"), 503
+    flash("账库已恢复，请重新核对客户账目和汇总。", "success")
+    return redirect(url_for("main.backups"))
+
+
+def _current_schema_version() -> str:
+    """Read the current Alembic revision without exposing it in the UI."""
+
+    from .backup_service import current_schema_version
+
+    database = Path(db.engine.url.database).resolve()
+    return current_schema_version(database)
+
+
+_AUDIT_OBJECT_LABELS = {
+    "customer": "客户",
+    "shipment": "发货",
+    "payment": "收款",
+    "payment_allocation": "收款分配",
+    "legacy_import": "旧账迁移",
+    "backup": "备份",
+    "restore": "恢复",
+}
+_AUDIT_ACTION_LABELS = {
+    "created": "新增",
+    "updated": "修改",
+    "voided": "作废",
+    "archived": "归档",
+    "restored": "恢复",
+    "revoked": "撤销",
+    "confirmed": "确认完成",
+    "daily_startup": "每日启动备份",
+    "before_export": "导出前备份",
+    "before_import": "导入前备份",
+    "before_restore": "恢复前备份",
+    "manual": "手动备份",
+    "completed": "完成恢复",
+}
+
+
+@main_bp.get("/audit")
+def audit():
+    events = db.session.scalars(
+        select(AuditEvent).order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(200)
+    ).all()
+    rows = [
+        {
+            "created_at": event.created_at,
+            "object_label": _AUDIT_OBJECT_LABELS.get(event.object_type, "系统操作"),
+            "action_label": _AUDIT_ACTION_LABELS.get(event.action, "已记录操作"),
+        }
+        for event in events
+    ]
+    return render_template("audit.html", audit_rows=rows)
 
 
 @main_bp.route("/imports/legacy", methods=["GET", "POST"])
@@ -465,12 +693,10 @@ def legacy_import():
                     ).strip()
                     for row in payment_confirmation_rows
                 }
-                backup_path = request.form.get("backup_path", "").strip()
-                if not backup_path:
-                    backup_path = str(
-                        Path(current_app.config["BACKUP_DIR"])
-                        / f"legacy-import-{dry_run.plan.source_hash}.db"
-                    )
+                backup_path = str(
+                    Path(current_app.config["BACKUP_DIR"])
+                    / f"ledger-before-import-{dry_run.plan.source_hash[:16]}.db"
+                )
                 import_result = confirm_legacy_import(
                     db.session,
                     dry_run,
@@ -480,9 +706,12 @@ def legacy_import():
                     confirmed_payment_methods=confirmed_payment_methods,
                 )
                 flash("旧账已确认导入，结果已完成对账。", "success")
-        except (LegacyImportError, OSError, ValueError) as exc:
+        except LegacyImportError as exc:
             db.session.rollback()
             error = str(exc)
+        except (OSError, ValueError):
+            db.session.rollback()
+            error = "旧账操作未完成，请检查本机文件和备份目录后重试。"
     return render_template(
         "legacy_import.html",
         dry_run=dry_run,

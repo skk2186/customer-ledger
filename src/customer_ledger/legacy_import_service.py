@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -15,6 +14,8 @@ from typing import Callable, Iterable
 import xlrd
 from sqlalchemy import select
 
+from .audit_service import add_system_audit
+from .backup_service import BackupError, create_backup
 from .calculation_service import calculate_receivable, create_payment_allocation
 from .customer_service import create_customer
 from .models import Customer, ImportRecord, Payment, PaymentAllocation, Shipment
@@ -633,27 +634,16 @@ def dry_run_legacy_import(
 
 
 def backup_sqlite_database(bind, destination: str | Path) -> Path:
-    """Take a consistent SQLite backup using SQLite's online backup API."""
-
-    if bind.dialect.name != "sqlite":
-        raise LegacyImportError("只有 SQLite 数据库支持本地备份。")
-    output = Path(destination)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    raw = bind.raw_connection()
-    source = getattr(raw, "driver_connection", None) or getattr(raw, "connection", None)
-    if not isinstance(source, sqlite3.Connection):
-        raw.close()
-        raise LegacyImportError("无法取得 SQLite 备份连接。")
-    target = sqlite3.connect(output)
     try:
-        source.backup(target)
-        target.commit()
-    except sqlite3.Error as exc:
-        raise LegacyImportError("数据库备份失败，已阻止导入。") from exc
-    finally:
-        target.close()
-        raw.close()
-    return output
+        manifest = create_backup(
+            bind,
+            destination=destination,
+            reason="before_import",
+            app_version="stage-4",
+        )
+    except BackupError as exc:
+        raise LegacyImportError(str(exc)) from exc
+    return Path(destination).with_name(manifest.database_filename)
 
 
 def _reconciliation(session, customer_ids: set[int]) -> dict[str, int]:
@@ -894,6 +884,18 @@ def confirm_legacy_import(
                 )
             )
             created_records += 1
+        add_system_audit(
+            session,
+            "legacy_import",
+            "confirmed",
+            counts={
+                "shipments": created_shipments,
+                "payments": created_payments,
+                "allocations": created_allocations,
+                "records": created_records,
+                "skipped": skipped_existing,
+            },
+        )
     return ImportResult(
         created_shipments=created_shipments,
         created_payments=created_payments,

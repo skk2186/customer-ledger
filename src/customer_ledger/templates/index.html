@@ -19,6 +19,10 @@
         <span class="entry-number">03</span><strong>客户汇总总表</strong>
         <span>按截至日期查看全体客户实时合计。</span>
     </a>
+    <a class="entry-card" href="{{ url_for('main.backups') }}">
+        <span class="entry-number">04</span><strong>备份恢复</strong>
+        <span>查看本机账库备份，必要时恢复到已确认状态。</span>
+    </a>
 </section>
-<section class="notice"><strong>快捷入口</strong><a href="{{ url_for('main.new_retail') }}">厂里零售</a><a href="{{ url_for('main.new_payment') }}">新增收款</a></section>
+<section class="notice"><strong>快捷入口</strong><a href="{{ url_for('main.new_retail') }}">厂里零售</a><a href="{{ url_for('main.new_payment') }}">新增收款</a><a href="{{ url_for('main.export_all_ledgers') }}">导出全部账目</a></section>
 {% endblock %}

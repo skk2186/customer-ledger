@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}确认恢复 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<section class="card narrow-card">
+    <p class="eyebrow">数据保护</p>
+    <h1>确认恢复账库</h1>
+    <p>恢复后，当前账目会回到这个备份保存时的状态。恢复前系统会再保存一份当前账库，以便失败时自动回滚。</p>
+    <dl class="detail-list"><dt>备份时间</dt><dd>{{ backup.created_at|replace('T', ' ') }}</dd><dt>备份原因</dt><dd>{% if backup.reason == 'manual' %}手动备份{% else %}系统备份{% endif %}</dd></dl>
+    {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+    <form method="post">
+        <label class="confirm-line"><input type="checkbox" name="confirm_restore" value="yes" required> 我已确认：当前账目将恢复到上述备份状态。</label>
+        <div class="form-actions"><button class="button" type="submit">确认恢复</button><a href="{{ url_for('main.backups') }}">取消</a></div>
+    </form>
+</section>
+{% endblock %}

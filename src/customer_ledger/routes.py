@@ -427,6 +427,7 @@ def legacy_import():
     dry_run = None
     import_result = None
     error = None
+    payment_confirmation_rows = []
     source_path = request.form.get("source_path", "").strip()
     if request.method == "POST":
         try:
@@ -436,10 +437,33 @@ def legacy_import():
                 reference_path=request.form.get("reference_path", "").strip() or None,
                 report_directory=current_app.config["IMPORT_REPORT_DIR"],
             )
+            payment_confirmation_rows = [
+                row
+                for row in dry_run.plan.rows
+                if (
+                    row.row_kind == "business"
+                    and row.payment_amount_cents > 0
+                    and row.payment_method is None
+                )
+                or (
+                    row.row_kind == "prepayment"
+                    and (
+                        row.prepayment_amount_cents <= 0
+                        or row.shipment_date is None
+                        or row.payment_method is None
+                    )
+                )
+            ]
             if request.form.get("action") == "confirm":
                 confirmed_mappings = {
                     f"{mapping.source_sheet}": request.form.get(f"mapping_{index}", "").strip()
                     for index, mapping in enumerate(dry_run.plan.mappings)
+                }
+                confirmed_payment_methods = {
+                    row.source_key: request.form.get(
+                        f"payment_method_{row.source_key}", ""
+                    ).strip()
+                    for row in payment_confirmation_rows
                 }
                 backup_path = request.form.get("backup_path", "").strip()
                 if not backup_path:
@@ -453,6 +477,7 @@ def legacy_import():
                     backup_path,
                     confirmed_mappings=confirmed_mappings,
                     confirm_prepayments=request.form.get("confirm_prepayments") == "yes",
+                    confirmed_payment_methods=confirmed_payment_methods,
                 )
                 flash("旧账已确认导入，结果已完成对账。", "success")
         except (LegacyImportError, OSError, ValueError) as exc:
@@ -464,6 +489,8 @@ def legacy_import():
         import_result=import_result,
         error=error,
         source_path=source_path,
+        payment_confirmation_rows=payment_confirmation_rows,
+        payment_methods=PAYMENT_METHODS,
     )
 
 

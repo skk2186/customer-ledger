@@ -20,10 +20,47 @@
     <div class="summary-card"><span>识别工作表</span><strong>{{ dry_run.plan.mappings|length }}</strong></div>
     <div class="summary-card"><span>发货候选</span><strong>{{ dry_run.candidate_counts.shipment_rows }}</strong></div>
     <div class="summary-card"><span>收款候选</span><strong>{{ dry_run.candidate_counts.payment_rows }}</strong></div>
+    <div class="summary-card"><span>待确认付款方式</span><strong>{{ dry_run.candidate_counts.payment_method_pending_rows }}</strong></div>
     <div class="summary-card"><span>预收候选</span><strong>{{ dry_run.candidate_counts.prepayment_rows }}</strong></div>
     <div class="summary-card"><span>异常类别</span><strong>{{ dry_run.plan.anomaly_counts|length }}</strong></div>
 </div>
 <p class="help">试算报告已保存到本机运行目录。历史汇总文件只作为核对参考，不会直接写入账务。</p>
+{% if dry_run.plan.anomaly_counts %}
+<section class="card">
+    <h2>异常类型与数量</h2>
+    <div class="table-wrap"><table>
+        <thead><tr><th>异常类型</th><th>数量</th></tr></thead>
+        <tbody>
+        {% for anomaly_key, count in dry_run.plan.anomaly_counts|dictsort %}
+        <tr><td>
+            {% if anomaly_key == 'payment_method_missing' %}付款方式待确认
+            {% elif anomaly_key == 'unpaid_with_payment_amount' %}标记未付款但存在实收
+            {% elif anomaly_key == 'prepayment_amount_missing' %}预收金额缺失
+            {% elif anomaly_key == 'non_formal_column_content' %}正式列以外存在内容
+            {% elif anomaly_key.startswith('invalid_') %}金额或数量无法识别
+            {% elif anomaly_key.startswith('negative_') %}金额或数量为负数
+            {% elif anomaly_key.startswith('date_') %}日期无法识别
+            {% else %}其他数据异常{% endif %}
+        </td><td>{{ count }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</section>
+{% endif %}
+{% if dry_run.plan.reconciliation_counts %}
+<section class="card">
+    <h2>对账提示</h2>
+    <p class="help">以下差异只用于人工核对，不会覆盖系统按现行规则重新计算的账目。</p>
+    <div class="table-wrap"><table>
+        <thead><tr><th>提示</th><th>数量</th></tr></thead>
+        <tbody>
+        {% for warning_key, count in dry_run.plan.reconciliation_counts|dictsort %}
+        <tr><td>{% if warning_key == 'receivable_difference_rows' %}旧应收与系统重算不一致{% elif warning_key == 'balance_difference_rows' %}旧欠款与系统重算不一致{% else %}需要人工核对{% endif %}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</section>
+{% endif %}
 <form class="card form wide-form" method="post">
     <input type="hidden" name="source_path" value="{{ source_path }}">
     <input type="hidden" name="reference_path" value="{{ request.form.get('reference_path', '') }}">
@@ -32,6 +69,31 @@
     <label for="mapping_{{ loop.index0 }}">工作表 {{ loop.index }}（{% if mapping.status == 'auto' %}可直接确认{% elif mapping.status == 'needs_confirmation' %}需要核对{% elif mapping.status == 'conflict' %}存在冲突{% else %}无法识别{% endif %}，{{ mapping.row_count }} 行）</label>
     <input id="mapping_{{ loop.index0 }}" name="mapping_{{ loop.index0 }}" value="{{ mapping.suggested_name or '' }}" required>
     {% endfor %}
+    {% if payment_confirmation_rows %}
+    <section class="card inset-card">
+        <h2>付款方式待确认</h2>
+        <p class="help">请按工作表和原始行号补充付款方式。页面不展示客户名称、金额或原始备注；业务行存在实收信息，预收候选还需同时核对日期和金额。</p>
+        <div class="table-wrap"><table>
+            <thead><tr><th>来源工作表</th><th>原始行号</th><th>收款信息</th><th>付款方式</th></tr></thead>
+            <tbody>
+            {% for row in payment_confirmation_rows %}
+            <tr>
+                <td>{{ row.source_sheet }}</td>
+                <td>{{ row.row_number }}</td>
+                <td>{% if row.row_kind == 'prepayment' %}预收候选，需核对日期和金额{% else %}存在实收，付款方式未识别{% endif %}</td>
+                <td>
+                    <label class="sr-only" for="payment_method_{{ row.source_key }}">第 {{ row.row_number }} 行付款方式</label>
+                    <select id="payment_method_{{ row.source_key }}" name="payment_method_{{ row.source_key }}"{% if row.row_kind == 'business' %} required{% endif %}>
+                        <option value="">请选择付款方式</option>
+                        {% for method in payment_methods %}<option value="{{ method }}"{% if request.form.get('payment_method_' ~ row.source_key) == method %} selected{% endif %}>{{ method }}</option>{% endfor %}
+                    </select>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+    </section>
+    {% endif %}
     {% if dry_run.candidate_counts.pending_prepayment_rows > 0 %}
     <label><input type="checkbox" name="confirm_prepayments" value="yes"> 已核对并确认导入预收候选</label>
     {% endif %}

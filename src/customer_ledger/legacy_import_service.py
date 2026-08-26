@@ -604,7 +604,12 @@ def dry_run_legacy_import(
         "payment_rows": sum(
             row.row_kind == "business"
             and row.payment_amount_cents > 0
-            and row.payment_method is not None
+            for row in plan.rows
+        ),
+        "payment_method_pending_rows": sum(
+            row.row_kind == "business"
+            and row.payment_amount_cents > 0
+            and row.payment_method is None
             for row in plan.rows
         ),
         "prepayment_rows": sum(row.row_kind == "prepayment" for row in plan.rows),
@@ -754,6 +759,30 @@ def _new_import_payment(
     return payment
 
 
+def _confirmed_payment_method(
+    row: LegacyRowCandidate, payment_methods: dict[str, str]
+) -> str | None:
+    """Return a source method, overridden only by the exact stable source key."""
+
+    method = payment_methods.get(row.source_key, row.payment_method)
+    if isinstance(method, str):
+        method = method.strip()
+    return method or None
+
+
+def _validated_confirmed_payment_method(
+    row: LegacyRowCandidate, payment_methods: dict[str, str], *, prepayment: bool = False
+) -> str:
+    method = _confirmed_payment_method(row, payment_methods)
+    if method is None:
+        label = "预收候选" if prepayment else "实收金额所在行"
+        raise LegacyImportError(f"{label}需要明确付款方式后才能导入。")
+    try:
+        return validate_payment_method(method)
+    except ValueError as exc:
+        raise LegacyImportError("付款方式只能选择：银行转账、微信、支付宝、现金或其他。") from exc
+
+
 def confirm_legacy_import(
     session,
     dry_run: DryRunResult,
@@ -782,12 +811,16 @@ def confirm_legacy_import(
             raise LegacyImportError("旧表行缺少客户映射。")
         if row.blocking_issues:
             raise LegacyImportError("旧表存在无法识别的金额或日期，请先处理异常。")
-        if row.row_kind == "prepayment" and row.prepayment_amount_cents > 0:
-            method = payment_methods.get(row.source_key, row.payment_method)
-            if confirm_prepayments and method is None:
-                raise LegacyImportError("预收候选需要明确付款方式后才能导入。")
-            if confirm_prepayments and row.shipment_date is None:
-                raise LegacyImportError("预收候选缺少日期，请先处理异常。")
+        if row.row_kind == "business" and row.payment_amount_cents > 0:
+            if "unpaid_with_payment_amount" in row.issues:
+                raise LegacyImportError("旧表标记为未付款却存在实收金额，请先处理异常。")
+            _validated_confirmed_payment_method(row, payment_methods)
+        if row.row_kind == "prepayment" and confirm_prepayments:
+            if row.prepayment_amount_cents <= 0:
+                raise LegacyImportError("已确认导入的预收候选必须有大于 0 的金额。")
+            if row.shipment_date is None:
+                raise LegacyImportError("已确认导入的预收候选必须有日期。")
+            _validated_confirmed_payment_method(row, payment_methods, prepayment=True)
     session.rollback()
     backup_fn(session.get_bind(), backup_path)
     session.rollback()
@@ -818,10 +851,7 @@ def confirm_legacy_import(
                 if not confirm_prepayments:
                     pending_prepayments += 1
                     continue
-                method = payment_methods.get(row.source_key, row.payment_method)
-                if row.prepayment_amount_cents <= 0 or method is None:
-                    pending_prepayments += 1
-                    continue
+                method = _validated_confirmed_payment_method(row, payment_methods, prepayment=True)
                 customer = _customer_for_mapping(session, target_names[row.source_sheet])
                 customer_ids.add(customer.id)
                 _new_import_payment(session, customer, row, method, row.prepayment_amount_cents)
@@ -837,33 +867,30 @@ def confirm_legacy_import(
                 )
                 created_records += 1
                 continue
+            method = None
+            if row.payment_amount_cents > 0:
+                method = _validated_confirmed_payment_method(row, payment_methods)
             customer = _customer_for_mapping(session, target_names[row.source_sheet])
             customer_ids.add(customer.id)
             shipment = _new_import_shipment(session, customer, row)
             created_shipments += 1
-            payment_exception = False
-            if row.payment_amount_cents > 0:
-                method = payment_methods.get(row.source_key, row.payment_method)
-                if method is None:
-                    payment_exception = True
-                    exceptions += 1
-                else:
-                    payment = _new_import_payment(
-                        session, customer, row, method, row.payment_amount_cents
-                    )
-                    created_payments += 1
-                    due = calculate_receivable(shipment) - shipment.rounding_cents
-                    allocation_amount = min(payment.amount_cents, due) if due > 0 else 0
-                    if allocation_amount > 0:
-                        create_payment_allocation(session, payment, shipment, allocation_amount)
-                        created_allocations += 1
+            if method is not None:
+                payment = _new_import_payment(
+                    session, customer, row, method, row.payment_amount_cents
+                )
+                created_payments += 1
+                due = calculate_receivable(shipment) - shipment.rounding_cents
+                allocation_amount = min(payment.amount_cents, due) if due > 0 else 0
+                if allocation_amount > 0:
+                    create_payment_allocation(session, payment, shipment, allocation_amount)
+                    created_allocations += 1
             session.add(
                 ImportRecord(
                     source_name=dry_run.plan.source_name,
                     source_key=row.source_key,
                     source_hash=dry_run.plan.source_hash,
-                    status="imported_with_exception" if payment_exception else "imported",
-                    message="付款方式待补录" if payment_exception else "确认导入",
+                    status="imported",
+                    message="确认导入",
                 )
             )
             created_records += 1

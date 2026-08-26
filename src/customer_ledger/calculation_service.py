@@ -76,7 +76,10 @@ def effective_allocated_cents(
         )
     )
     if as_of is not None:
-        statement = statement.where(Payment.payment_date <= as_of)
+        statement = statement.where(
+            Payment.payment_date <= as_of,
+            Shipment.shipment_date <= as_of,
+        )
     value = session.scalar(statement)
     return int(value or 0)
 
@@ -122,7 +125,10 @@ def payment_allocated_cents(
         )
     )
     if as_of is not None:
-        statement = statement.where(Payment.payment_date <= as_of)
+        statement = statement.where(
+            Payment.payment_date <= as_of,
+            Shipment.shipment_date <= as_of,
+        )
     value = session.scalar(statement)
     return int(value or 0)
 
@@ -257,6 +263,8 @@ def customer_ledger_rows(
             .distinct()
             .order_by(Payment.payment_method.asc())
         )
+        if as_of is not None:
+            methods_statement = methods_statement.where(Payment.payment_date <= as_of)
         methods = ", ".join(session.scalars(methods_statement).all())
         rows.append(
             ShipmentLedgerRow(

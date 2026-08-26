@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from uuid import uuid4
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -37,7 +48,17 @@ from .customer_service import (
     restore_customer,
     update_customer,
 )
+from .export_service import (
+    export_all_ledger_workbook,
+    export_customer_workbook,
+    export_summary_workbook,
+)
 from .extensions import db
+from .legacy_import_service import (
+    LegacyImportError,
+    confirm_legacy_import,
+    dry_run_legacy_import,
+)
 from .models import Customer, Payment, PaymentAllocation, Shipment
 from .validation import (
     INITIAL_PAYMENT_OPTIONS,
@@ -362,6 +383,87 @@ def customer_ledger(customer_id: int):
         payment_rows=payment_rows,
         active_shipments=active_shipments,
         token=_new_token(),
+    )
+
+
+def _export_path(filename: str):
+    directory = current_app.config["EXPORTS_DIR"]
+    return Path(directory) / filename
+
+
+@main_bp.get("/customers/<int:customer_id>/export.xlsx")
+def export_customer(customer_id: int):
+    customer = _customer_or_404(customer_id)
+    path = export_customer_workbook(
+        db.session, customer.id, _export_path(f"customer-{customer.id}.xlsx")
+    )
+    return send_file(path, as_attachment=True, download_name=f"{customer.name}.xlsx")
+
+
+@main_bp.get("/exports/summary.xlsx")
+def export_summary():
+    cutoff_raw = request.args.get("as_of", date.today().isoformat())
+    try:
+        cutoff = parse_date(cutoff_raw, "截至日期")
+    except ValidationError as exc:
+        return str(exc), 400
+    path = export_summary_workbook(db.session, _export_path("customer-summary.xlsx"), cutoff)
+    return send_file(path, as_attachment=True, download_name="客户汇总总表.xlsx")
+
+
+@main_bp.get("/exports/all-ledgers.xlsx")
+def export_all_ledgers():
+    cutoff_raw = request.args.get("as_of", date.today().isoformat())
+    try:
+        cutoff = parse_date(cutoff_raw, "截至日期")
+    except ValidationError as exc:
+        return str(exc), 400
+    path = export_all_ledger_workbook(db.session, _export_path("all-customer-ledgers.xlsx"), cutoff)
+    return send_file(path, as_attachment=True, download_name="客户账目总表.xlsx")
+
+
+@main_bp.route("/imports/legacy", methods=["GET", "POST"])
+def legacy_import():
+    dry_run = None
+    import_result = None
+    error = None
+    source_path = request.form.get("source_path", "").strip()
+    if request.method == "POST":
+        try:
+            dry_run = dry_run_legacy_import(
+                db.session,
+                source_path,
+                reference_path=request.form.get("reference_path", "").strip() or None,
+                report_directory=current_app.config["IMPORT_REPORT_DIR"],
+            )
+            if request.form.get("action") == "confirm":
+                confirmed_mappings = {
+                    f"{mapping.source_sheet}": request.form.get(f"mapping_{index}", "").strip()
+                    for index, mapping in enumerate(dry_run.plan.mappings)
+                }
+                backup_path = request.form.get("backup_path", "").strip()
+                if not backup_path:
+                    backup_path = str(
+                        Path(current_app.config["BACKUP_DIR"])
+                        / f"legacy-import-{dry_run.plan.source_hash}.db"
+                    )
+                import_result = confirm_legacy_import(
+                    db.session,
+                    dry_run,
+                    backup_path,
+                    confirmed_mappings=confirmed_mappings,
+                    confirm_prepayments=request.form.get("confirm_prepayments") == "yes",
+                )
+                flash("旧账已确认导入，结果已完成对账。", "success")
+        except (LegacyImportError, OSError, ValueError) as exc:
+            db.session.rollback()
+            error = str(exc)
+    return render_template(
+        "legacy_import.html",
+        dry_run=dry_run,
+        import_result=import_result,
+        error=error,
+        source_path=source_path,
     )
 
 

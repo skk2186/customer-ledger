@@ -19,9 +19,9 @@
 | payment_allocation | allocated_amount_cents/active | integer 分/boolean | 分配金额；有效或撤销 |
 | audit_event | object_type/object_id/action | text/text/text | 被操作对象和动作 |
 | audit_event | before_summary/after_summary | text/text | 必要的短 JSON 摘要，不含完整敏感说明 |
-| import_record | source_name/source_key/source_hash | text/text/text | 后续旧表幂等导入预留键和指纹 |
-| import_record | status/message | text/text | 导入状态和机器可读说明 |
+| import_record | source_name/source_key/source_hash | text/text/text | 旧表确认导入的来源文件、哈希+工作表+原始行号来源键和指纹；唯一约束防止同一来源重复写入 |
+| import_record | status/message | text/text | 导入、异常待补录等状态和不含完整敏感原文的说明 |
 | submission_record | token/operation | text/text | 用户写操作的持久化幂等令牌和操作 |
 | submission_record | result_type/result_id | text/integer | 令牌对应的结果对象 |
 
-有效合计只纳入 active=True 的账务记录。客户汇总的“实收款”是有效 Payment 总额，不是已分配金额；未分配部分单独显示为预收。
+有效合计只纳入 active=True 的账务记录。客户汇总的“实收款”是有效 Payment 总额，不是已分配金额；未分配部分单独显示为预收。Excel 导出不增加持久化派生字段；预收行、发货实收和发货欠款均由计算服务实时生成。

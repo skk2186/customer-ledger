@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}旧账迁移 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading">
+    <div><p class="eyebrow">旧账整理</p><h1>旧账迁移</h1></div>
+</div>
+<p class="help">先进行试算预览，确认客户映射和异常后，系统会先备份本机账库，再一次性导入。</p>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<form class="card form wide-form" method="post">
+    <label for="source_path">旧账 .xls 文件位置</label>
+    <input id="source_path" name="source_path" value="{{ source_path }}" placeholder="请输入本机文件位置" required>
+    <label for="reference_path">历史汇总参考文件（可选）</label>
+    <input id="reference_path" name="reference_path" value="{{ request.form.get('reference_path', '') }}" placeholder="仅用于核对，不会作为导入来源">
+    <div class="form-actions"><button class="button" name="action" value="dry_run" type="submit">先做试算预览</button><a href="{{ url_for('main.index') }}">返回首页</a></div>
+</form>
+
+{% if dry_run %}
+<section class="section-heading"><h2>试算结果</h2><span class="muted">未写入账务数据</span></section>
+<div class="summary-grid">
+    <div class="summary-card"><span>识别工作表</span><strong>{{ dry_run.plan.mappings|length }}</strong></div>
+    <div class="summary-card"><span>发货候选</span><strong>{{ dry_run.candidate_counts.shipment_rows }}</strong></div>
+    <div class="summary-card"><span>收款候选</span><strong>{{ dry_run.candidate_counts.payment_rows }}</strong></div>
+    <div class="summary-card"><span>预收候选</span><strong>{{ dry_run.candidate_counts.prepayment_rows }}</strong></div>
+    <div class="summary-card"><span>异常类别</span><strong>{{ dry_run.plan.anomaly_counts|length }}</strong></div>
+</div>
+<p class="help">试算报告已保存到本机运行目录。历史汇总文件只作为核对参考，不会直接写入账务。</p>
+<form class="card form wide-form" method="post">
+    <input type="hidden" name="source_path" value="{{ source_path }}">
+    <input type="hidden" name="reference_path" value="{{ request.form.get('reference_path', '') }}">
+    <h2>确认客户对应关系</h2>
+    {% for mapping in dry_run.plan.mappings %}
+    <label for="mapping_{{ loop.index0 }}">工作表 {{ loop.index }}（{% if mapping.status == 'auto' %}可直接确认{% elif mapping.status == 'needs_confirmation' %}需要核对{% elif mapping.status == 'conflict' %}存在冲突{% else %}无法识别{% endif %}，{{ mapping.row_count }} 行）</label>
+    <input id="mapping_{{ loop.index0 }}" name="mapping_{{ loop.index0 }}" value="{{ mapping.suggested_name or '' }}" required>
+    {% endfor %}
+    {% if dry_run.candidate_counts.pending_prepayment_rows > 0 %}
+    <label><input type="checkbox" name="confirm_prepayments" value="yes"> 已核对并确认导入预收候选</label>
+    {% endif %}
+    <label for="backup_path">备份文件位置（可选）</label>
+    <input id="backup_path" name="backup_path" placeholder="留空则保存到本机备份目录">
+    <div class="form-actions"><button class="button" name="action" value="confirm" type="submit">确认导入</button></div>
+</form>
+{% endif %}
+
+{% if import_result %}
+<section class="section-heading"><h2>导入完成</h2></section>
+<div class="card">
+    <p>新增发货 {{ import_result.created_shipments }} 行，新增收款 {{ import_result.created_payments }} 笔，新增分配 {{ import_result.created_allocations }} 笔。</p>
+    <p>重复记录 {{ import_result.skipped_existing }} 行，待确认预收 {{ import_result.pending_prepayments }} 行，异常 {{ import_result.exceptions }} 行。</p>
+    <p>导入后账目已完成汇总核对。</p>
+</div>
+{% endif %}
+{% endblock %}

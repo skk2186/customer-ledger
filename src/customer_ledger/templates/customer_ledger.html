@@ -6,7 +6,7 @@
 {% block content %}
 <div class="page-heading">
     <div><p class="eyebrow">客户账目</p><h1>{{ customer.name }}{% if not customer.active %} <span class="status archived">已归档</span>{% endif %}</h1></div>
-    <div class="heading-actions"><a class="button secondary" href="{{ url_for('main.new_payment', customer_id=customer.id) }}">新增收款</a><a class="button" href="{{ url_for('main.new_shipment') }}">新增发货</a></div>
+    <div class="heading-actions"><a class="button secondary" href="{{ url_for('main.export_customer', customer_id=customer.id) }}">导出客户账目</a><a class="button secondary" href="{{ url_for('main.new_payment', customer_id=customer.id) }}">新增收款</a><a class="button" href="{{ url_for('main.new_shipment') }}">新增发货</a></div>
 </div>
 <div class="summary-grid">
     <div class="summary-card"><span>客户总货款</span><strong>{{ summary.total_goods_cents|yuan }} 元</strong></div>

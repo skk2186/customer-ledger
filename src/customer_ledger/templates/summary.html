@@ -3,7 +3,7 @@
 {% macro amount_text(value) %}{% if value < 0 %}冲减 {{ (-value)|yuan }} 元{% else %}{{ value|yuan }} 元{% endif %}{% endmacro %}
 {% block title %}客户汇总总表 - 客户快捷填表系统{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">只读汇总</p><h1>客户汇总总表</h1></div></div>
+<div class="page-heading"><div><p class="eyebrow">只读汇总</p><h1>客户汇总总表</h1></div><div class="heading-actions"><a class="button secondary" href="{{ url_for('main.export_summary', as_of=cutoff.isoformat()) }}">导出汇总表</a><a class="button" href="{{ url_for('main.export_all_ledgers', as_of=cutoff.isoformat()) }}">导出全部账目</a></div></div>
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 <form class="search date-filter" method="get">
     <label for="as_of">截至日期</label><input id="as_of" name="as_of" type="date" value="{{ cutoff.isoformat() }}"><button type="submit">查询</button>

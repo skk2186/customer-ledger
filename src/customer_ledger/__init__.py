@@ -25,6 +25,9 @@ def create_app(test_config: dict | None = None) -> Flask:
         ),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         MIGRATIONS_DIR=str(project_root / "migrations"),
+        EXPORTS_DIR=str(project_root / "exports"),
+        IMPORT_REPORT_DIR=str(project_root / "runtime_data" / "import_reports"),
+        BACKUP_DIR=str(project_root / "backups"),
         JSON_AS_ASCII=False,
     )
     if test_config:

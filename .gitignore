@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+.env
+
+# Local/private data and runtime output
+private_samples/
+runtime_data/
+exports/
+backups/
+logs/
+import reports/
+import_reports/
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite*
+*.xls
+*.xlsx
+
+# Build artifacts
+dist/
+build/
+*.whl
+
+# IDE/OS
+.idea/
+.vscode/
+*.user
+Thumbs.db
+Desktop.ini

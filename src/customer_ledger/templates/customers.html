@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}客户管理 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading">
+    <div><p class="eyebrow">Customer registry</p><h1>客户管理</h1></div>
+    <a class="button" href="{{ url_for('main.new_customer') }}">新增客户</a>
+</div>
+<form class="search" method="get">
+    <label for="q">搜索客户</label>
+    <input id="q" name="q" value="{{ query }}" placeholder="输入客户名称">
+    <button type="submit">搜索</button>
+    {% if query %}<a href="{{ url_for('main.customers') }}">清除</a>{% endif %}
+</form>
+{% if customers %}
+<div class="table-wrap">
+<table>
+    <thead><tr><th>名称</th><th>备注</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for customer in customers %}
+    <tr>
+        <td><a href="{{ url_for('main.edit_customer', customer_id=customer.id) }}">{{ customer.name }}</a></td>
+        <td class="muted">{{ customer.notes or '—' }}</td>
+        <td><span class="status {{ 'active' if customer.active else 'archived' }}">{{ '有效' if customer.active else '已归档' }}</span></td>
+        <td class="actions">
+            <a href="{{ url_for('main.edit_customer', customer_id=customer.id) }}">编辑</a>
+            {% if customer.active %}
+            <form method="post" action="{{ url_for('main.archive', customer_id=customer.id) }}"><button class="link-button" type="submit">归档</button></form>
+            {% else %}
+            <form method="post" action="{{ url_for('main.restore', customer_id=customer.id) }}"><button class="link-button" type="submit">恢复</button></form>
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty"><p>还没有客户记录。</p><a href="{{ url_for('main.new_customer') }}">新增第一个客户</a></div>
+{% endif %}
+{% endblock %}

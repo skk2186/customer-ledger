@@ -1,0 +1,1 @@
+本目录由 Flask-Migrate/Alembic 管理。请使用 `flask db upgrade`，不要在应用启动时调用 `db.create_all()`。

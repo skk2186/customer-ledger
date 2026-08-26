@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}首页 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<section class="hero">
+    <p class="eyebrow">阶段一 · foundation</p>
+    <h1>把客户基础资料先理顺。</h1>
+    <p>本地运行的客户管理基础，支持客户新增、检索、备注、归档和恢复。</p>
+    <a class="button" href="{{ url_for('main.customers') }}">进入客户管理</a>
+</section>
+<section class="notice">
+    <strong>当前范围</strong>
+    <span>暂不包含发货、收款页面和 Excel 导入导出。</span>
+</section>
+{% endblock %}

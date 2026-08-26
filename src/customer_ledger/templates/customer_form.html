@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑客户' if customer else '新增客户' }} - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Customer registry</p><h1>{{ '编辑客户' if customer else '新增客户' }}</h1></div></div>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<form class="card form" method="post">
+    <label for="name">客户名称 <span class="required">*</span></label>
+    <input id="name" name="name" value="{{ values.name }}" maxlength="100" required autofocus>
+    <p class="help">名称会做统一规范化后判重；不能包含 Excel 禁止字符。</p>
+    <label for="notes">备注</label>
+    <textarea id="notes" name="notes" rows="5">{{ values.notes }}</textarea>
+    <div class="form-actions"><button class="button" type="submit">保存</button><a href="{{ url_for('main.customers') }}">取消</a></div>
+</form>
+{% endblock %}

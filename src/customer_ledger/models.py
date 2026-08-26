@@ -89,7 +89,7 @@ class Shipment(TimestampMixin, db.Model):
 
 class Payment(TimestampMixin, db.Model):
     __tablename__ = "payment"
-    __table_args__ = (CheckConstraint("amount_cents >= 0", name="ck_payment_amount_nonnegative"),)
+    __table_args__ = (CheckConstraint("amount_cents > 0", name="ck_payment_amount_positive"),)
 
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=False, index=True)
@@ -144,3 +144,15 @@ class ImportRecord(TimestampMixin, db.Model):
     source_hash = db.Column(db.String(128), nullable=False, default="")
     status = db.Column(db.String(30), nullable=False, default="pending")
     message = db.Column(db.Text, nullable=False, default="")
+
+
+class SubmissionRecord(TimestampMixin, db.Model):
+    """Durable idempotency record for user-facing write submissions."""
+
+    __tablename__ = "submission_record"
+
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    operation = db.Column(db.String(50), nullable=False)
+    result_type = db.Column(db.String(50), nullable=False)
+    result_id = db.Column(db.Integer, nullable=False)

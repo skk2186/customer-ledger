@@ -2,13 +2,23 @@
 {% block title %}首页 - 客户快捷填表系统{% endblock %}
 {% block content %}
 <section class="hero">
-    <p class="eyebrow">阶段一 · foundation</p>
-    <h1>把客户基础资料先理顺。</h1>
-    <p>本地运行的客户管理基础，支持客户新增、检索、备注、归档和恢复。</p>
-    <a class="button" href="{{ url_for('main.customers') }}">进入客户管理</a>
+    <p class="eyebrow">日常记账工作台</p>
+    <h1>今天的账，从一笔发货开始。</h1>
+    <p>用清楚的发货、收款和客户汇总，把每天的账务留在本机。</p>
 </section>
-<section class="notice">
-    <strong>当前范围</strong>
-    <span>暂不包含发货、收款页面和 Excel 导入导出。</span>
+<section class="entry-grid">
+    <a class="entry-card" href="{{ url_for('main.new_shipment') }}">
+        <span class="entry-number">01</span><strong>新增一笔</strong>
+        <span>录入发货，可同时登记初始收款。</span>
+    </a>
+    <a class="entry-card" href="{{ url_for('main.customers') }}">
+        <span class="entry-number">02</span><strong>客户账目</strong>
+        <span>查看发货、收款、预收和历史记录。</span>
+    </a>
+    <a class="entry-card" href="{{ url_for('main.summary') }}">
+        <span class="entry-number">03</span><strong>客户汇总总表</strong>
+        <span>按截至日期查看全体客户实时合计。</span>
+    </a>
 </section>
+<section class="notice"><strong>快捷入口</strong><a href="{{ url_for('main.new_retail') }}">厂里零售</a><a href="{{ url_for('main.new_payment') }}">新增收款</a></section>
 {% endblock %}

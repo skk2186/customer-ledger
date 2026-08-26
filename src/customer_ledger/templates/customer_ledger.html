@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% macro qty(value) %}{{ value // 100 }}.{{ '%02d'|format(value % 100) }}{% endmacro %}
+{% block title %}{{ customer.name }} - 客户账目{% endblock %}
+{% block content %}
+<div class="page-heading">
+    <div><p class="eyebrow">Customer ledger</p><h1>{{ customer.name }}{% if not customer.active %} <span class="status archived">已归档</span>{% endif %}</h1></div>
+    <div class="heading-actions"><a class="button secondary" href="{{ url_for('main.new_payment', customer_id=customer.id) }}">新增收款</a><a class="button" href="{{ url_for('main.new_shipment') }}">新增发货</a></div>
+</div>
+<div class="summary-grid">
+    <div class="summary-card"><span>客户总货款</span><strong>{{ summary.total_goods_cents|yuan }} 元</strong></div>
+    <div class="summary-card"><span>客户总应收</span><strong>{{ summary.total_receivable_cents|yuan }} 元</strong></div>
+    <div class="summary-card"><span>客户总收款</span><strong>{{ summary.total_received_cents|yuan }} 元</strong></div>
+    <div class="summary-card"><span>{% if summary.net_balance_cents < 0 %}预收余额{% elif summary.net_balance_cents == 0 %}已结清{% else %}客户净余额{% endif %}</span><strong>{{ (summary.net_balance_cents if summary.net_balance_cents >= 0 else -summary.net_balance_cents)|yuan }} 元</strong></div>
+    <div class="summary-card"><span>未分配预收</span><strong>{{ summary.unallocated_prepayment_cents|yuan }} 元</strong></div>
+</div>
+
+<section class="section-heading"><h2>发货明细</h2><span class="muted">合计不含已作废记录</span></section>
+<div class="table-wrap wide-table">
+<table>
+    <thead><tr><th>日期</th><th>总货款</th><th>运费</th><th>卸车费</th><th>退板吨位</th><th>退板金额</th><th>问题扣费</th><th>平方数</th><th>应收款</th><th>实收款</th><th>欠款</th><th>抹零</th><th>付款方式</th><th>状态/操作</th></tr></thead>
+    <tbody>
+    {% for row in rows %}
+    <tr class="{{ 'void-row' if not row.shipment.active else '' }}">
+        <td>{{ row.shipment.shipment_date }}</td>
+        <td>{{ row.shipment.total_amount_cents|yuan }}</td><td>{{ row.shipment.freight_cents|yuan }}</td><td>{{ row.shipment.unloading_fee_cents|yuan }}</td>
+        <td>{{ qty(row.shipment.returned_pallet_tonnage_hundredths) }}</td><td>{{ row.shipment.returned_pallet_amount_cents|yuan }}</td><td>{{ row.shipment.issue_deduction_cents|yuan }}</td><td>{{ qty(row.shipment.area_hundredths) }}</td>
+        <td>{{ row.calculation.receivable_cents|yuan }}</td><td>{{ row.calculation.received_cents|yuan }}</td><td>{{ row.calculation.balance_cents|yuan }}</td><td>{{ row.shipment.rounding_cents|yuan }}</td><td>{{ row.payment_methods or '—' }}</td>
+        <td>{% if row.shipment.active %}<span class="status active">有效</span><div class="row-actions"><a href="{{ url_for('main.edit_shipment', shipment_id=row.shipment.id) }}">编辑</a><form method="post" action="{{ url_for('main.void_shipment_route', shipment_id=row.shipment.id) }}" onsubmit="return confirm('确认作废这笔发货？相关分配会撤销，原收款会回到预收。');"><input type="hidden" name="submission_token" value="{{ token }}-s{{ row.shipment.id }}"><button class="link-button danger" type="submit">作废</button></form></div>{% else %}<span class="status archived">已作废</span>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="14" class="empty-cell">暂无发货记录。</td></tr>{% endfor %}
+    </tbody>
+    <tfoot><tr><th>合计</th><th>{{ summary.total_goods_cents|yuan }}</th><th>{{ summary.total_freight_cents|yuan }}</th><th>{{ summary.total_unloading_fee_cents|yuan }}</th><th>{{ qty(summary.total_tonnage_hundredths) }}</th><th>{{ summary.total_returned_pallet_cents|yuan }}</th><th>{{ summary.total_issue_deduction_cents|yuan }}</th><th>{{ qty(summary.total_area_hundredths) }}</th><th>{{ summary.total_receivable_cents|yuan }}</th><th>{{ summary.total_received_cents|yuan }}</th><th>{{ summary.net_balance_cents|yuan }}</th><th>{{ summary.total_rounding_cents|yuan }}</th><th>—</th><th>系统计算</th></tr></tfoot>
+</table>
+</div>
+
+<section class="section-heading"><h2>收款记录</h2><a href="{{ url_for('main.new_payment', customer_id=customer.id) }}">新增收款</a></section>
+<div class="table-wrap">
+<table><thead><tr><th>日期</th><th>金额</th><th>付款方式</th><th>说明</th><th>状态</th><th>未分配</th><th>操作</th></tr></thead><tbody>
+{% for item in payment_rows %}{% set payment = item.payment %}<tr class="{{ 'void-row' if not payment.active else '' }}"><td>{{ payment.payment_date }}</td><td>{{ payment.amount_cents|yuan }}</td><td>{{ payment.payment_method }}</td><td class="muted">{{ payment.description or '—' }}</td><td>{{ '有效' if payment.active else '已作废' }}</td><td>{{ item.unallocated_cents|yuan }}</td><td>{% if payment.active %}<div class="row-actions"><form method="post" action="{{ url_for('main.void_payment_route', payment_id=payment.id) }}" onsubmit="return confirm('确认作废这笔收款？相关分配会同时撤销。');"><input type="hidden" name="submission_token" value="{{ token }}-p{{ payment.id }}"><button class="link-button danger" type="submit">作废</button></form>{% if item.unallocated_cents > 0 and active_shipments %}<details><summary>分配</summary><form class="mini-form" method="post" action="{{ url_for('main.allocate_payment_route', payment_id=payment.id) }}"><input type="hidden" name="submission_token" value="{{ token }}-a{{ payment.id }}"><label for="ship-{{ payment.id }}">发货</label><select id="ship-{{ payment.id }}" name="shipment_id">{% for shipment in active_shipments %}<option value="{{ shipment.id }}">{{ shipment.shipment_date }} · #{{ shipment.id }}</option>{% endfor %}</select><label for="amount-{{ payment.id }}">分配金额</label><input id="amount-{{ payment.id }}" name="allocation_amount" inputmode="decimal" value="{{ item.unallocated_cents|yuan }}"><button type="submit">保存分配</button></form></details>{% endif %}{% if item.allocations %}<details><summary>查看分配</summary><ul class="allocation-list">{% for allocation in item.allocations %}<li>发货 #{{ allocation.shipment_id }}：{{ allocation.allocated_amount_cents|yuan }} 元{% if allocation.active %}<form method="post" action="{{ url_for('main.revoke_allocation_route', allocation_id=allocation.id) }}" onsubmit="return confirm('确认撤销这笔分配？金额会回到预收。');"><input type="hidden" name="submission_token" value="{{ token }}-r{{ allocation.id }}"><button class="link-button danger" type="submit">撤销</button></form>{% else %}（已撤销）{% endif %}</li>{% endfor %}</ul></details>{% endif %}</div>{% endif %}</td></tr>{% else %}<tr><td colspan="7" class="empty-cell">暂无收款记录。</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="help">作废和撤销只会让记录失效，不会物理删除；有效收款未分配的部分会显示为预收。</p>
+{% endblock %}

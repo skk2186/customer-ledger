@@ -20,6 +20,7 @@ def test_empty_database_migrates_and_repeat_is_safe(app):
         "payment_allocation",
         "audit_event",
         "import_record",
+        "submission_record",
     } <= tables
 
 

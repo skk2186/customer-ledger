@@ -1,6 +1,6 @@
 # 客户快捷填表系统
 
-阶段一建立一个仅供本机使用的 Flask 基础工程、版本化数据库模型、统一计算服务和客户管理闭环，为后续发货、收款和旧表导入做准备。
+阶段二提供普通会计用户的本地记账闭环：新增发货、初始收款、后续收款、预收与分配、客户账目、作废/撤销和只读客户汇总总表。
 
 ## 安装
 
@@ -25,17 +25,19 @@ py -3.10 -m venv .venv
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m flask --app "customer_ledger:create_app" db upgrade
+.\.venv\Scripts\python.exe -m flask --app "customer_ledger:create_app" db check
 ```
 
 ## 当前能力
 
-- 首页、健康检查和本机 Flask 启动。
-- 客户列表、搜索、新增、修改名称/备注、归档和恢复。
-- Customer、Shipment、Payment、PaymentAllocation、AuditEvent、ImportRecord 模型及初始迁移。
-- 整数分金额、百分之一数量和唯一的统一计算服务。
-- PaymentAllocation 的金额上限和客户一致性校验。
-
-阶段一明确不包含发货/收款业务页面、汇总总表、Excel 导入导出、备份恢复和 Windows 打包。
+- 首页三个主要入口：新增一笔、客户账目、客户汇总总表；另有厂里零售和新增收款快捷入口。
+- 发货录入：原始字段、初始收款、十进制安全解析、服务端重算应收/欠款和重复提交保护。
+- 收款录入：银行转账、微信、支付宝、现金、其他；暂不分配、指定发货和按最早未结清自动分配。
+- 客户账目：固定发货明细顺序、系统合计、收款、未分配预收、编辑、作废、撤销分配和历史标记。
+- 客户汇总总表：按本机截至日期筛选，固定列、客户合计、全表合计、归档客户标识和预收余额标识；页面只读。
+- 厂里零售：复用普通 Customer、Shipment、Payment、PaymentAllocation 模型。
+- 所有账务写操作通过 `bookkeeping_service.py` 事务服务并写入必要审计摘要。
 
 ## 目录
 
@@ -50,4 +52,4 @@ tests/
 pyproject.toml
 ```
 
-运行时数据库默认写入被 Git 忽略的 `runtime_data/customer_ledger.db`。请先阅读 [AGENTS.md](AGENTS.md) 和 `docs/` 中的契约。
+运行时数据库默认写入被 Git 忽略的 `runtime_data/customer_ledger.db`。本阶段不实现 Excel 导入导出、旧账迁移、完整备份恢复或 Windows 打包；Excel 规则继续以 [EXCEL_CONTRACT.md](docs/EXCEL_CONTRACT.md) 为准。

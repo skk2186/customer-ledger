@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% macro qty(value) %}{{ value // 100 }}.{{ '%02d'|format(value % 100) }}{% endmacro %}
+{% block title %}客户汇总总表 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Read-only report</p><h1>客户汇总总表</h1></div></div>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<form class="search date-filter" method="get">
+    <label for="as_of">截至日期</label><input id="as_of" name="as_of" type="date" value="{{ cutoff.isoformat() }}"><button type="submit">查询</button>
+</form>
+<p class="help">发货按发货日期、收款按收款日期纳入；本页面只读，所有数字实时计算。</p>
+<div class="table-wrap wide-table">
+<table>
+    <thead><tr><th>客户名称</th><th>总货款</th><th>运费</th><th>卸车费</th><th>退板吨位</th><th>退板金额</th><th>问题扣费</th><th>平方数</th><th>应收款</th><th>实收款</th><th>欠款</th><th>抹零</th></tr></thead>
+    <tbody>{% for row in summary_rows %}<tr><td><a href="{{ url_for('main.customer_ledger', customer_id=row.customer.id) }}">{{ row.customer.name }}</a>{% if not row.customer.active %} <span class="status archived">已归档</span>{% endif %}</td><td>{{ row.summary.total_goods_cents|yuan }}</td><td>{{ row.summary.total_freight_cents|yuan }}</td><td>{{ row.summary.total_unloading_fee_cents|yuan }}</td><td>{{ qty(row.summary.total_tonnage_hundredths) }}</td><td>{{ row.summary.total_returned_pallet_cents|yuan }}</td><td>{{ row.summary.total_issue_deduction_cents|yuan }}</td><td>{{ qty(row.summary.total_area_hundredths) }}</td><td>{{ row.summary.total_receivable_cents|yuan }}</td><td>{{ row.summary.total_received_cents|yuan }}</td><td>{% if row.summary.net_balance_cents < 0 %}预收余额 {{ (-row.summary.net_balance_cents)|yuan }}{% elif row.summary.net_balance_cents == 0 %}已结清{% else %}{{ row.summary.net_balance_cents|yuan }}{% endif %}</td><td>{{ row.summary.total_rounding_cents|yuan }}</td></tr>{% else %}<tr><td colspan="12" class="empty-cell">暂无客户记录。</td></tr>{% endfor %}</tbody>
+    <tfoot><tr><th>合计</th><th>{{ grand_total.total_goods_cents|yuan }}</th><th>{{ grand_total.total_freight_cents|yuan }}</th><th>{{ grand_total.total_unloading_fee_cents|yuan }}</th><th>{{ qty(grand_total.total_tonnage_hundredths) }}</th><th>{{ grand_total.total_returned_pallet_cents|yuan }}</th><th>{{ grand_total.total_issue_deduction_cents|yuan }}</th><th>{{ qty(grand_total.total_area_hundredths) }}</th><th>{{ grand_total.total_receivable_cents|yuan }}</th><th>{{ grand_total.total_received_cents|yuan }}</th><th>{% if grand_total.net_balance_cents < 0 %}预收余额 {{ (-grand_total.net_balance_cents)|yuan }}{% elif grand_total.net_balance_cents == 0 %}已结清{% else %}{{ grand_total.net_balance_cents|yuan }}{% endif %}</th><th>{{ grand_total.total_rounding_cents|yuan }}</th></tr></tfoot>
+</table>
+</div>
+{% endblock %}

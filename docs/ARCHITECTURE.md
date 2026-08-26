@@ -3,24 +3,27 @@
 ```text
 浏览器（127.0.0.1）
         |
-Flask routes/templates —— customer_service —— SQLAlchemy models
-                                      |
-                              SQLite + Alembic
-        |
-                       calculation_service（唯一公式入口）
+Flask routes/templates —— bookkeeping_service —— models
+                              |                  |
+                    calculation_service       SQLite + Alembic
 ```
 
 ## 分层
 
-- `__init__.py`：应用工厂、默认配置、扩展初始化和路由注册。
-- `models.py`：持久化实体与字段约束，不保存应收等派生真值。
-- `customer_service.py`：客户校验、生命周期、审计和删除保护；路由不直接复制业务规则。
-- `calculation_service.py`：发货、收款、分配和客户余额的唯一计算入口。
-- `validation.py`：名称、规范化名称和 Excel Sheet 名称规则。
-- `migrations/`：受控的 Alembic 迁移，应用启动不会隐式 `create_all`。
+- `__init__.py`：应用工厂、扩展初始化、静态过滤器和路由注册。
+- `models.py`：Customer、Shipment、Payment、PaymentAllocation、AuditEvent、ImportRecord、SubmissionRecord；不保存应收等派生真值。
+- `validation.py`：客户名、日期、十进制金额/数量、付款方式和提交令牌校验。
+- `customer_service.py`：客户生命周期和审计。
+- `bookkeeping_service.py`：发货、收款、分配、编辑、作废、撤销、厂里零售和幂等事务；所有账务写操作从这里进入。
+- `calculation_service.py`：唯一计算入口，提供单据计算、客户账目行、客户汇总和全表合计。
+- `migrations/`：受控 Alembic 迁移，应用启动不调用 `create_all()`。
 
-默认 SQLite 数据库位于 `runtime_data/`，可用 `SQLALCHEMY_DATABASE_URI` 覆盖。应用只绑定 `127.0.0.1`，阶段一不依赖 CDN。
+## 事务与幂等
 
-## 一致性
+每个账务写服务拥有一个数据库事务。`SubmissionRecord.token` 是持久化唯一键；成功事务记录操作和结果 ID，同一令牌重放时返回原结果。事务中任意校验、关系或数据库错误都会回滚。
 
-PaymentAllocation 创建必须经过服务层校验：付款与发货客户一致、付款和分配有效、累积分配不超过付款金额。数据库层提供非负检查和外键；跨行规则由受控服务事务保证。
+## 计算与日期
+
+汇总服务按有效 Shipment 的 `shipment_date` 和有效 Payment 的 `payment_date` 应用截至日期；分配只影响单据实收和预收展示，客户净余额使用有效 Payment 总额，因此分配前后不变。负余额统一在页面标注为“预收余额”。
+
+应用和开发脚本只绑定 `127.0.0.1`，不依赖 CDN、联网字体或遥测。

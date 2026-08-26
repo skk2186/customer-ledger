@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-heading">
     <div><p class="eyebrow">Customer registry</p><h1>客户管理</h1></div>
-    <a class="button" href="{{ url_for('main.new_customer') }}">新增客户</a>
+    <div class="heading-actions"><a class="button secondary" href="{{ url_for('main.new_customer') }}">新增客户</a><a class="button" href="{{ url_for('main.new_shipment') }}">新增发货</a></div>
 </div>
 <form class="search" method="get">
     <label for="q">搜索客户</label>
@@ -18,10 +18,11 @@
     <tbody>
     {% for customer in customers %}
     <tr>
-        <td><a href="{{ url_for('main.edit_customer', customer_id=customer.id) }}">{{ customer.name }}</a></td>
+        <td><a href="{{ url_for('main.customer_ledger', customer_id=customer.id) }}">{{ customer.name }}</a></td>
         <td class="muted">{{ customer.notes or '—' }}</td>
         <td><span class="status {{ 'active' if customer.active else 'archived' }}">{{ '有效' if customer.active else '已归档' }}</span></td>
         <td class="actions">
+            <a href="{{ url_for('main.customer_ledger', customer_id=customer.id) }}">账目</a>
             <a href="{{ url_for('main.edit_customer', customer_id=customer.id) }}">编辑</a>
             {% if customer.active %}
             <form method="post" action="{{ url_for('main.archive', customer_id=customer.id) }}"><button class="link-button" type="submit">归档</button></form>

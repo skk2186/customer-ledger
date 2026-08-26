@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑发货' if customer else '新增一笔发货' }} - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Bookkeeping</p><h1>{{ '编辑发货' if customer else '新增一笔' }}</h1></div></div>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<form class="card form wide-form" method="post">
+    <input type="hidden" name="submission_token" value="{{ token }}">
+    {% if customer %}
+        <input type="hidden" name="customer_id" value="{{ values.customer_id }}">
+        <label>客户</label><div class="readonly-field">{{ customer.name }}{% if not customer.active %}（已归档）{% endif %}</div>
+    {% else %}
+        <label for="customer_id">客户 <span class="required">*</span></label>
+        <select id="customer_id" name="customer_id" required>
+            <option value="">请选择客户</option>
+            {% for item in customers %}<option value="{{ item.id }}"{% if values.customer_id|string == item.id|string %} selected{% endif %}>{{ item.name }}</option>{% endfor %}
+        </select>
+    {% endif %}
+    <label for="shipment_date">日期 <span class="required">*</span></label>
+    <input id="shipment_date" name="shipment_date" type="date" value="{{ values.shipment_date }}" required>
+    <div class="form-grid">
+        <div><label for="total_amount">总货款</label><input id="total_amount" name="total_amount" inputmode="decimal" placeholder="0.00" value="{{ values.total_amount }}"></div>
+        <div><label for="freight">运费</label><input id="freight" name="freight" inputmode="decimal" placeholder="0.00" value="{{ values.freight }}"></div>
+        <div><label for="unloading_fee">卸车费</label><input id="unloading_fee" name="unloading_fee" inputmode="decimal" placeholder="0.00" value="{{ values.unloading_fee }}"></div>
+        <div><label for="returned_pallet_tonnage">退板吨位</label><input id="returned_pallet_tonnage" name="returned_pallet_tonnage" inputmode="decimal" placeholder="0.00" value="{{ values.returned_pallet_tonnage }}"></div>
+        <div><label for="returned_pallet_amount">退板金额</label><input id="returned_pallet_amount" name="returned_pallet_amount" inputmode="decimal" placeholder="0.00" value="{{ values.returned_pallet_amount }}"></div>
+        <div><label for="issue_deduction">问题扣费</label><input id="issue_deduction" name="issue_deduction" inputmode="decimal" placeholder="0.00" value="{{ values.issue_deduction }}"></div>
+        <div><label for="area">平方数</label><input id="area" name="area" inputmode="decimal" placeholder="0.00" value="{{ values.area }}"></div>
+        <div><label for="rounding">抹零</label><input id="rounding" name="rounding" inputmode="decimal" placeholder="0.00" value="{{ values.rounding }}"></div>
+    </div>
+    <label for="description">内部说明</label>
+    <textarea id="description" name="description" rows="3">{{ values.description }}</textarea>
+    <div class="preview" aria-live="polite">
+        <div><span>实时预览应收款</span><strong id="receivable_preview">0.00 元</strong></div>
+        {% if not customer %}<div><span>实时预览欠款</span><strong id="balance_preview">0.00 元</strong></div>{% endif %}
+    </div>
+    {% if not customer %}
+    <fieldset>
+        <legend>初始收款（暂未付款请留空或填 0）</legend>
+        <label for="initial_received">初始实收款</label>
+        <input id="initial_received" name="initial_received" inputmode="decimal" placeholder="0.00" value="{{ values.initial_received }}">
+        <label for="payment_method">付款方式</label>
+        <select id="payment_method" name="payment_method">
+            {% for method in payment_methods %}<option value="{{ method }}"{% if values.payment_method == method %} selected{% endif %}>{{ method }}</option>{% endfor %}
+        </select>
+        <label for="payment_description">收款说明</label>
+        <textarea id="payment_description" name="payment_description" rows="2">{{ values.payment_description }}</textarea>
+    </fieldset>
+    {% endif %}
+    <div class="form-actions"><button class="button" type="submit">保存</button><a href="{{ url_for('main.customers') }}">取消</a></div>
+</form>
+<script>
+(() => {
+    const ids = ['total_amount', 'freight', 'unloading_fee', 'returned_pallet_amount', 'issue_deduction', 'rounding', 'initial_received'];
+    const units = (id) => {
+        const element = document.getElementById(id);
+        const raw = element ? element.value.trim() : '';
+        if (!raw || !/^\d+(?:\.\d{1,2})?$/.test(raw)) return 0n;
+        const parts = raw.split('.');
+        return BigInt(parts[0]) * 100n + BigInt((parts[1] || '').padEnd(2, '0'));
+    };
+    const format = (cents) => {
+        const sign = cents < 0n ? '-' : '';
+        const value = cents < 0n ? -cents : cents;
+        return `${sign}${value / 100n}.${String(value % 100n).padStart(2, '0')} 元`;
+    };
+    const refresh = () => {
+        const receivable = units('total_amount') - units('freight') - units('unloading_fee') - units('returned_pallet_amount') - units('issue_deduction');
+        const initial = units('initial_received');
+        const rounding = units('rounding');
+        const allocated = initial < (receivable - rounding > 0n ? receivable - rounding : 0n) ? initial : (receivable - rounding > 0n ? receivable - rounding : 0n);
+        document.getElementById('receivable_preview').textContent = format(receivable);
+        const balance = document.getElementById('balance_preview');
+        if (balance) balance.textContent = format(receivable - allocated - rounding);
+    };
+    ids.forEach((id) => { const element = document.getElementById(id); if (element) element.addEventListener('input', refresh); });
+    refresh();
+})();
+</script>
+{% endblock %}

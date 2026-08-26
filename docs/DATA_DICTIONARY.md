@@ -1,38 +1,27 @@
 # 数据字典
 
-所有时间戳为 UTC aware datetime；所有主键为整数；所有金额字段以整数分保存；吨位和平方数以百分之一单位保存。
+所有时间戳为 UTC aware datetime；金额以整数分保存；吨位和平方数以百分之一整数单位保存；派生金额不保存为用户可编辑真值。
 
 | 表 | 字段 | 类型/单位 | 说明 |
 |---|---|---|---|
-| customer | id | integer | 主键 |
-| customer | name | text | 展示名称，同时是 Excel Sheet 名；去除首尾空白后 1–31 字符，不含 Excel 禁止字符、控制字符，不能以单引号开头或结尾 |
-| customer | normalized_name | text | NFKC、去首尾空白、合并空白、casefold；唯一 |
-| customer | notes | text | 备注，可空 |
-| customer | active | boolean | True 为有效，False 为归档 |
-| customer | created_at/updated_at | timestamp | 时间戳 |
-| shipment | customer_id | integer | 客户外键 |
-| shipment | shipment_date | date | 发货日期 |
-| shipment | total_amount_cents | integer 分 | 总货款 |
-| shipment | freight_cents | integer 分 | 运费 |
-| shipment | unloading_fee_cents | integer 分 | 卸车费 |
-| shipment | returned_pallet_tonnage_hundredths | integer 0.01 吨 | 退板吨位，不参与应收公式 |
-| shipment | returned_pallet_amount_cents | integer 分 | 退板金额 |
-| shipment | issue_deduction_cents | integer 分 | 问题扣费 |
-| shipment | area_hundredths | integer 0.01 平方单位 | 平方数，不参与应收公式 |
-| shipment | rounding_cents | integer 分 | 抹零 |
-| shipment | description | text | 说明 |
-| shipment | active | boolean | True 为有效，False 为作废 |
-| payment | customer_id | integer | 客户外键 |
-| payment | payment_date | date | 收款日期 |
-| payment | amount_cents | integer 分 | 收款金额 |
-| payment | payment_method | text | 付款方式 |
-| payment | description | text | 说明 |
-| payment | active | boolean | True 为有效，False 为作废 |
-| payment_allocation | payment_id/shipment_id | integer | 付款和发货外键 |
-| payment_allocation | allocated_amount_cents | integer 分 | 分配金额 |
-| payment_allocation | active | boolean | True 为有效，False 为作废 |
-| audit_event | object_type/object_id | text/text | 被操作对象 |
-| audit_event | action | text | 动作 |
-| audit_event | before_summary/after_summary | text | 简短 JSON 摘要，不放完整备注 |
-| import_record | source_name/source_key | text | 后续旧表幂等导入键，联合唯一 |
-| import_record | source_hash/status/message | text | 内容指纹、状态和机器可读说明 |
+| customer | id/name/normalized_name | integer/text/text | 名称同时是 Excel Sheet 名，1–31 字符；规范化名称唯一 |
+| customer | notes/active | text/boolean | 备注；有效或归档 |
+| shipment | customer_id/shipment_date | integer/date | 客户外键和发货日期 |
+| shipment | total_amount_cents/freight_cents/unloading_fee_cents | integer 分 | 总货款、运费、卸车费 |
+| shipment | returned_pallet_tonnage_hundredths/area_hundredths | integer 0.01 单位 | 退板吨位、平方数，不参与应收 |
+| shipment | returned_pallet_amount_cents/issue_deduction_cents/rounding_cents | integer 分 | 退板金额、问题扣费、抹零 |
+| shipment | description/active | text/boolean | 内部说明；有效或作废 |
+| payment | customer_id/payment_date | integer/date | 客户外键和收款日期 |
+| payment | amount_cents | integer 分 > 0 | 收款金额 |
+| payment | payment_method/description | text/text | 受控付款方式和独立说明 |
+| payment | active | boolean | 有效或作废 |
+| payment_allocation | payment_id/shipment_id | integer/integer | 付款和发货外键 |
+| payment_allocation | allocated_amount_cents/active | integer 分/boolean | 分配金额；有效或撤销 |
+| audit_event | object_type/object_id/action | text/text/text | 被操作对象和动作 |
+| audit_event | before_summary/after_summary | text/text | 必要的短 JSON 摘要，不含完整敏感说明 |
+| import_record | source_name/source_key/source_hash | text/text/text | 后续旧表幂等导入预留键和指纹 |
+| import_record | status/message | text/text | 导入状态和机器可读说明 |
+| submission_record | token/operation | text/text | 用户写操作的持久化幂等令牌和操作 |
+| submission_record | result_type/result_id | text/integer | 令牌对应的结果对象 |
+
+有效合计只纳入 active=True 的账务记录。客户汇总的“实收款”是有效 Payment 总额，不是已分配金额；未分配部分单独显示为预收。

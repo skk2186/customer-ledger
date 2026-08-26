@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}厂里零售 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Quick entry</p><h1>厂里零售</h1></div></div>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<form class="card form" method="post">
+    <input type="hidden" name="submission_token" value="{{ token }}">
+    <label for="retail_date">日期 <span class="required">*</span></label>
+    <input id="retail_date" name="retail_date" type="date" value="{{ values.retail_date }}" required>
+    <label for="location_description">地点或说明</label>
+    <textarea id="location_description" name="location_description" rows="3">{{ values.location_description }}</textarea>
+    <label for="area">平方数</label>
+    <input id="area" name="area" inputmode="decimal" placeholder="0.00" value="{{ values.area }}">
+    <label for="amount">金额</label>
+    <input id="amount" name="amount" inputmode="decimal" placeholder="0.00" value="{{ values.amount }}">
+    <fieldset>
+        <legend>收款情况</legend>
+        <label><input type="radio" name="received" value="yes"{% if values.received == 'yes' %} checked{% endif %}> 已收款</label>
+        <label><input type="radio" name="received" value="no"{% if values.received != 'yes' %} checked{% endif %}> 暂未付款</label>
+        <label for="payment_method">付款方式</label>
+        <select id="payment_method" name="payment_method">
+            {% for method in payment_methods %}<option value="{{ method }}"{% if values.payment_method == method %} selected{% endif %}>{{ method }}</option>{% endfor %}
+        </select>
+        <label for="payment_description">收款说明</label>
+        <textarea id="payment_description" name="payment_description" rows="2">{{ values.payment_description }}</textarea>
+    </fieldset>
+    <div class="form-actions"><button class="button" type="submit">保存零售</button><a href="{{ url_for('main.index') }}">取消</a></div>
+</form>
+{% endblock %}

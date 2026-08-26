@@ -9,7 +9,11 @@
 <body>
     <header class="site-header">
         <a class="brand" href="{{ url_for('main.index') }}">客户快捷填表系统</a>
-        <nav><a href="{{ url_for('main.customers') }}">客户管理</a></nav>
+        <nav class="top-nav">
+            <a href="{{ url_for('main.new_shipment') }}">新增一笔</a>
+            <a href="{{ url_for('main.summary') }}">客户汇总总表</a>
+            <a href="{{ url_for('main.customers') }}">客户管理</a>
+        </nav>
     </header>
     <main class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}

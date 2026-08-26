@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ '编辑发货' if customer else '新增一笔发货' }} - 客户快捷填表系统{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Bookkeeping</p><h1>{{ '编辑发货' if customer else '新增一笔' }}</h1></div></div>
+<div class="page-heading"><div><p class="eyebrow">记账</p><h1>{{ '编辑发货' if customer else '新增一笔' }}</h1></div></div>
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 <form class="card form wide-form" method="post">
     <input type="hidden" name="submission_token" value="{{ token }}">
@@ -31,14 +31,15 @@
     <textarea id="description" name="description" rows="3">{{ values.description }}</textarea>
     <div class="preview" aria-live="polite">
         <div><span>实时预览应收款</span><strong id="receivable_preview">0.00 元</strong></div>
-        {% if not customer %}<div><span>实时预览欠款</span><strong id="balance_preview">0.00 元</strong></div>{% endif %}
+        {% if not customer %}<div><span>实时预览余额</span><strong id="balance_preview">暂未付款</strong></div><div><span>初始收款结果</span><strong id="payment_preview">暂未付款</strong></div>{% endif %}
     </div>
     {% if not customer %}
     <fieldset>
-        <legend>初始收款（暂未付款请留空或填 0）</legend>
-        <label for="initial_received">初始实收款</label>
+        <legend>初始收款</legend>
+        <p class="help">尚未付款请选择“暂未付款”；系统不会生成 0 元收款记录。</p>
+        <label for="initial_received">初始收款金额</label>
         <input id="initial_received" name="initial_received" inputmode="decimal" placeholder="0.00" value="{{ values.initial_received }}">
-        <label for="payment_method">付款方式</label>
+        <label for="payment_method">付款方式（已收款时选择）</label>
         <select id="payment_method" name="payment_method">
             {% for method in payment_methods %}<option value="{{ method }}"{% if values.payment_method == method %} selected{% endif %}>{{ method }}</option>{% endfor %}
         </select>
@@ -58,19 +59,40 @@
         const parts = raw.split('.');
         return BigInt(parts[0]) * 100n + BigInt((parts[1] || '').padEnd(2, '0'));
     };
-    const format = (cents) => {
-        const sign = cents < 0n ? '-' : '';
+    const positiveFormat = (cents) => {
         const value = cents < 0n ? -cents : cents;
-        return `${sign}${value / 100n}.${String(value % 100n).padStart(2, '0')} 元`;
+        return `${value / 100n}.${String(value % 100n).padStart(2, '0')} 元`;
+    };
+    const formatReceivable = (cents) => cents < 0n ? `冲减 ${positiveFormat(-cents)}` : positiveFormat(cents);
+    const formatBalance = (cents) => {
+        if (cents < 0n) return `冲减 ${positiveFormat(-cents)}`;
+        if (cents === 0n) return '已结清';
+        return `欠款 ${positiveFormat(cents)}`;
     };
     const refresh = () => {
         const receivable = units('total_amount') - units('freight') - units('unloading_fee') - units('returned_pallet_amount') - units('issue_deduction');
         const initial = units('initial_received');
         const rounding = units('rounding');
-        const allocated = initial < (receivable - rounding > 0n ? receivable - rounding : 0n) ? initial : (receivable - rounding > 0n ? receivable - rounding : 0n);
-        document.getElementById('receivable_preview').textContent = format(receivable);
+        const due = receivable - rounding > 0n ? receivable - rounding : 0n;
+        const allocated = initial < due ? initial : due;
+        const unallocated = initial - allocated;
+        document.getElementById('receivable_preview').textContent = formatReceivable(receivable);
         const balance = document.getElementById('balance_preview');
-        if (balance) balance.textContent = format(receivable - allocated - rounding);
+        if (balance) balance.textContent = formatBalance(receivable - allocated - rounding);
+        const payment = document.getElementById('payment_preview');
+        if (payment) {
+            if (initial === 0n) {
+                payment.textContent = '暂未付款';
+            } else {
+                const messages = [];
+                const currentBalance = receivable - allocated - rounding;
+                if (currentBalance < 0n) messages.push(`冲减 ${positiveFormat(-currentBalance)}`);
+                else if (currentBalance === 0n) messages.push('本单已结清');
+                else messages.push(`本单尚欠 ${positiveFormat(currentBalance)}`);
+                if (unallocated > 0n) messages.push(`将形成未分配预收 ${positiveFormat(unallocated)}`);
+                payment.textContent = messages.join('；');
+            }
+        }
     };
     ids.forEach((id) => { const element = document.getElementById(id); if (element) element.addEventListener('input', refresh); });
     refresh();

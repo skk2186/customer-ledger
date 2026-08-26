@@ -40,7 +40,9 @@ from .customer_service import (
 from .extensions import db
 from .models import Customer, Payment, PaymentAllocation, Shipment
 from .validation import (
+    INITIAL_PAYMENT_OPTIONS,
     PAYMENT_METHODS,
+    UNPAID_PAYMENT_OPTION,
     ValidationError,
     parse_date,
     parse_money_cents,
@@ -145,7 +147,7 @@ def _new_shipment_values() -> dict[str, str | int]:
         "rounding": "",
         "description": "",
         "initial_received": "",
-        "payment_method": PAYMENT_METHODS[0],
+        "payment_method": UNPAID_PAYMENT_OPTION,
         "payment_description": "",
     }
 
@@ -253,18 +255,24 @@ def new_shipment():
         values=values,
         error=error,
         token=token,
-        payment_methods=PAYMENT_METHODS,
+        payment_methods=INITIAL_PAYMENT_OPTIONS,
     )
 
 
 def _create_shipment_from_form(form, token: str):
     data = _shipment_input_from_form(form)
     initial = parse_money_cents(form.get("initial_received"), "初始实收款")
+    payment_method = form.get("payment_method", "")
+    if payment_method == UNPAID_PAYMENT_OPTION:
+        if initial != 0:
+            raise ValidationError("选择“暂未付款”时，初始收款金额必须为空或 0。")
+        # The unpaid shortcut is a UI choice, never a persisted Payment method.
+        payment_method = PAYMENT_METHODS[0]
     return create_shipment_with_initial_payment(
         db.session,
         data,
         initial,
-        form.get("payment_method", ""),
+        payment_method,
         form.get("payment_description", ""),
         token,
     )

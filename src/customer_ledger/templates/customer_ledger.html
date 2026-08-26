@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% macro qty(value) %}{{ value // 100 }}.{{ '%02d'|format(value % 100) }}{% endmacro %}
+{% macro amount_text(value) %}{% if value < 0 %}冲减 {{ (-value)|yuan }} 元{% else %}{{ value|yuan }} 元{% endif %}{% endmacro %}
+{% macro balance_text(value) %}{% if value < 0 %}预收/冲减 {{ (-value)|yuan }} 元{% elif value == 0 %}已结清{% else %}{{ value|yuan }} 元{% endif %}{% endmacro %}
 {% block title %}{{ customer.name }} - 客户账目{% endblock %}
 {% block content %}
 <div class="page-heading">
-    <div><p class="eyebrow">Customer ledger</p><h1>{{ customer.name }}{% if not customer.active %} <span class="status archived">已归档</span>{% endif %}</h1></div>
+    <div><p class="eyebrow">客户账目</p><h1>{{ customer.name }}{% if not customer.active %} <span class="status archived">已归档</span>{% endif %}</h1></div>
     <div class="heading-actions"><a class="button secondary" href="{{ url_for('main.new_payment', customer_id=customer.id) }}">新增收款</a><a class="button" href="{{ url_for('main.new_shipment') }}">新增发货</a></div>
 </div>
 <div class="summary-grid">
@@ -24,12 +26,12 @@
         <td>{{ row.shipment.shipment_date }}</td>
         <td>{{ row.shipment.total_amount_cents|yuan }}</td><td>{{ row.shipment.freight_cents|yuan }}</td><td>{{ row.shipment.unloading_fee_cents|yuan }}</td>
         <td>{{ qty(row.shipment.returned_pallet_tonnage_hundredths) }}</td><td>{{ row.shipment.returned_pallet_amount_cents|yuan }}</td><td>{{ row.shipment.issue_deduction_cents|yuan }}</td><td>{{ qty(row.shipment.area_hundredths) }}</td>
-        <td>{{ row.calculation.receivable_cents|yuan }}</td><td>{{ row.calculation.received_cents|yuan }}</td><td>{{ row.calculation.balance_cents|yuan }}</td><td>{{ row.shipment.rounding_cents|yuan }}</td><td>{{ row.payment_methods or '—' }}</td>
+        <td>{{ amount_text(row.calculation.receivable_cents) }}</td><td>{{ row.calculation.received_cents|yuan }}</td><td>{{ balance_text(row.calculation.balance_cents) }}</td><td>{{ row.shipment.rounding_cents|yuan }}</td><td>{{ row.payment_methods or '—' }}</td>
         <td>{% if row.shipment.active %}<span class="status active">有效</span><div class="row-actions"><a href="{{ url_for('main.edit_shipment', shipment_id=row.shipment.id) }}">编辑</a><form method="post" action="{{ url_for('main.void_shipment_route', shipment_id=row.shipment.id) }}" onsubmit="return confirm('确认作废这笔发货？相关分配会撤销，原收款会回到预收。');"><input type="hidden" name="submission_token" value="{{ token }}-s{{ row.shipment.id }}"><button class="link-button danger" type="submit">作废</button></form></div>{% else %}<span class="status archived">已作废</span>{% endif %}</td>
     </tr>
     {% else %}<tr><td colspan="14" class="empty-cell">暂无发货记录。</td></tr>{% endfor %}
     </tbody>
-    <tfoot><tr><th>合计</th><th>{{ summary.total_goods_cents|yuan }}</th><th>{{ summary.total_freight_cents|yuan }}</th><th>{{ summary.total_unloading_fee_cents|yuan }}</th><th>{{ qty(summary.total_tonnage_hundredths) }}</th><th>{{ summary.total_returned_pallet_cents|yuan }}</th><th>{{ summary.total_issue_deduction_cents|yuan }}</th><th>{{ qty(summary.total_area_hundredths) }}</th><th>{{ summary.total_receivable_cents|yuan }}</th><th>{{ summary.total_received_cents|yuan }}</th><th>{{ summary.net_balance_cents|yuan }}</th><th>{{ summary.total_rounding_cents|yuan }}</th><th>—</th><th>系统计算</th></tr></tfoot>
+    <tfoot><tr><th>合计</th><th>{{ summary.total_goods_cents|yuan }}</th><th>{{ summary.total_freight_cents|yuan }}</th><th>{{ summary.total_unloading_fee_cents|yuan }}</th><th>{{ qty(summary.total_tonnage_hundredths) }}</th><th>{{ summary.total_returned_pallet_cents|yuan }}</th><th>{{ summary.total_issue_deduction_cents|yuan }}</th><th>{{ qty(summary.total_area_hundredths) }}</th><th>{{ amount_text(summary.total_receivable_cents) }}</th><th>{{ summary.total_allocated_received_cents|yuan }}</th><th>{{ balance_text(summary.total_shipment_balance_cents) }}</th><th>{{ summary.total_rounding_cents|yuan }}</th><th>—</th><th>系统计算</th></tr></tfoot>
 </table>
 </div>
 

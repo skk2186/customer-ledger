@@ -21,6 +21,7 @@ from customer_ledger.bookkeeping_service import (
 )
 from customer_ledger.calculation_service import (
     calculate_shipment,
+    customer_ledger_rows,
     customer_summary,
     payment_unallocated_cents,
     summarize_customers,
@@ -129,8 +130,128 @@ def test_overpayment_is_preserved_as_unallocated_prepayment(app):
         summary = customer_summary(db.session, customer.id)
         assert calculate_shipment(db.session, shipment).received_cents == 99_900
         assert summary.total_received_cents == 120_000
+        assert summary.total_allocated_received_cents == 99_900
+        assert summary.total_shipment_balance_cents == 0
         assert summary.unallocated_prepayment_cents == 20_100
         assert summary.net_balance_cents == -20_100
+
+
+def test_ledger_totals_keep_payment_and_allocation_scopes_separate(client, app):
+    with app.app_context():
+        customer = _customer("账目合计客户")
+        shipment = create_shipment_with_initial_payment(
+            db.session,
+            _shipment_input(customer.id, total_amount_cents=100_000),
+            120_000,
+            "现金",
+            "合成超额收款",
+            "token-ledger-totals",
+        )
+        summary = customer_summary(db.session, customer.id)
+        rows = customer_ledger_rows(db.session, customer.id)
+
+        assert summary.total_received_cents == 120_000
+        assert summary.total_allocated_received_cents == 100_000
+        assert summary.unallocated_prepayment_cents == 20_000
+        assert summary.net_balance_cents == -20_000
+        assert summary.total_shipment_balance_cents == 0
+        assert rows[0].shipment.id == shipment.id
+        assert rows[0].calculation.received_cents == 100_000
+        assert rows[0].calculation.balance_cents == 0
+
+        page = client.get(f"/customers/{customer.id}/ledger").get_data(as_text=True)
+        footer = page.split("<tfoot>", 1)[1].split("</tfoot>", 1)[0]
+        assert "<th>1000.00</th>" in footer
+        assert "<th>1200.00</th>" not in footer
+        assert "预收余额" in page
+        assert "200.00" in page
+        assert "欠款 -200.00" not in page
+
+
+def test_negative_balances_use_accounting_language_in_ledger_and_preview(client, app):
+    with app.app_context():
+        customer = _customer("负余额客户")
+        response = client.post(
+            "/shipments/new",
+            data={
+                "submission_token": "token-negative-page",
+                "customer_id": str(customer.id),
+                "shipment_date": "2026-04-03",
+                "total_amount": "1.00",
+                "freight": "2.00",
+                "unloading_fee": "",
+                "returned_pallet_tonnage": "",
+                "returned_pallet_amount": "",
+                "issue_deduction": "",
+                "area": "",
+                "rounding": "",
+                "description": "合成负应收",
+                "initial_received": "",
+                "payment_method": "暂未付款",
+                "payment_description": "",
+            },
+        )
+        assert response.status_code == 302
+        ledger = client.get(f"/customers/{customer.id}/ledger").get_data(as_text=True)
+        preview = client.get("/shipments/new").get_data(as_text=True)
+
+        assert "预收/冲减 1.00 元" in ledger
+        assert "欠款 -1.00" not in ledger
+        assert ">-1.00<" not in ledger
+        assert "冲减" in preview
+        assert "欠款 -" not in preview
+        summary = client.get("/summary").get_data(as_text=True)
+        assert "冲减 1.00 元" in summary
+        assert ">-1.00<" not in summary
+
+
+def test_unpaid_shortcut_creates_shipment_without_zero_payment(client, app):
+    with app.app_context():
+        customer = _customer("暂未付款客户")
+        response = client.post(
+            "/shipments/new",
+            data={
+                "submission_token": "token-unpaid-shortcut",
+                "customer_id": str(customer.id),
+                "shipment_date": "2026-04-04",
+                "total_amount": "100.00",
+                "freight": "",
+                "unloading_fee": "",
+                "returned_pallet_tonnage": "",
+                "returned_pallet_amount": "",
+                "issue_deduction": "",
+                "area": "",
+                "rounding": "",
+                "description": "合成未付款",
+                "initial_received": "0",
+                "payment_method": "暂未付款",
+                "payment_description": "",
+            },
+        )
+        assert response.status_code == 302
+        assert db.session.scalar(select(func.count(Shipment.id))) == 1
+        assert db.session.scalar(select(func.count(Payment.id))) == 0
+        assert db.session.scalar(select(Payment.payment_method)) is None
+
+
+def test_stage_two_user_pages_are_free_of_decorative_english(client, app):
+    with app.app_context():
+        customer = _customer("中文界面客户")
+        pages = [
+            client.get("/"),
+            client.get("/customers"),
+            client.get("/customers/new"),
+            client.get("/shipments/new"),
+            client.get("/payments/new"),
+            client.get("/retail/new"),
+            client.get("/summary"),
+            client.get(f"/customers/{customer.id}/ledger"),
+        ]
+        forbidden = ("Customer ledger", "Bookkeeping", "Read-only report")
+        for page in pages:
+            assert page.status_code == 200
+            body = page.get_data(as_text=True)
+            assert all(text not in body for text in forbidden)
 
 
 def test_one_payment_can_be_split_and_reallocation_does_not_change_net_balance(app):

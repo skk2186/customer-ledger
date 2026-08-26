@@ -278,8 +278,10 @@ def create_shipment_with_initial_payment(
                         description=payment_description,
                     ),
                 )
-                current_due = max(calculate_receivable(shipment) - shipment.rounding_cents, 0)
-                allocation_amount = min(initial_received_cents, current_due)
+                current_due = calculate_receivable(shipment) - shipment.rounding_cents
+                allocation_amount = (
+                    min(initial_received_cents, current_due) if current_due > 0 else 0
+                )
                 if allocation_amount > 0:
                     _add_allocation(session, payment, shipment, allocation_amount)
             _save_submission(session, submission_token, "create_shipment", "shipment", shipment.id)

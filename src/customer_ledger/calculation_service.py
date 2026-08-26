@@ -35,6 +35,8 @@ class CustomerSummary:
     total_area_hundredths: int
     total_receivable_cents: int
     total_received_cents: int
+    total_allocated_received_cents: int
+    total_shipment_balance_cents: int
     total_rounding_cents: int
     net_balance_cents: int
     unallocated_prepayment_cents: int
@@ -190,6 +192,8 @@ def customer_summary(
         total_area_hundredths=total_area,
         total_receivable_cents=total_receivable,
         total_received_cents=total_received,
+        total_allocated_received_cents=allocated,
+        total_shipment_balance_cents=total_receivable - allocated - total_rounding,
         total_rounding_cents=total_rounding,
         net_balance_cents=total_receivable - total_received - total_rounding,
         unallocated_prepayment_cents=total_received - allocated,
@@ -211,6 +215,8 @@ def _rollup_summaries(summaries: list[CustomerSummary]) -> CustomerSummary:
         "total_area_hundredths",
         "total_receivable_cents",
         "total_received_cents",
+        "total_allocated_received_cents",
+        "total_shipment_balance_cents",
         "total_rounding_cents",
         "net_balance_cents",
         "unallocated_prepayment_cents",

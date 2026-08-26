@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}厂里零售 - 客户快捷填表系统{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Quick entry</p><h1>厂里零售</h1></div></div>
+<div class="page-heading"><div><p class="eyebrow">快捷录入</p><h1>厂里零售</h1></div></div>
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 <form class="card form" method="post">
     <input type="hidden" name="submission_token" value="{{ token }}">

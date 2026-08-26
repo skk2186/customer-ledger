@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ '编辑客户' if customer else '新增客户' }} - 客户快捷填表系统{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Customer registry</p><h1>{{ '编辑客户' if customer else '新增客户' }}</h1></div></div>
+<div class="page-heading"><div><p class="eyebrow">客户管理</p><h1>{{ '编辑客户' if customer else '新增客户' }}</h1></div></div>
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 <form class="card form" method="post">
     <label for="name">客户名称 <span class="required">*</span></label>

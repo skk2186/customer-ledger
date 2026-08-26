@@ -15,6 +15,8 @@ class ValidationError(ValueError):
 EXCEL_SHEET_FORBIDDEN_CHARS = frozenset(':\\/?*[]')
 EXCEL_SHEET_NAME_MAX_LENGTH = 31
 PAYMENT_METHODS = ("银行转账", "微信", "支付宝", "现金", "其他")
+UNPAID_PAYMENT_OPTION = "暂未付款"
+INITIAL_PAYMENT_OPTIONS = (*PAYMENT_METHODS[:4], UNPAID_PAYMENT_OPTION, PAYMENT_METHODS[4])
 DECIMAL_INPUT_PATTERN = re.compile(r"^-?[0-9]+(?:\.[0-9]{1,2})?$")
 SUBMISSION_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 

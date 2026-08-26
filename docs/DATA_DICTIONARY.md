@@ -5,7 +5,7 @@
 | 表 | 字段 | 类型/单位 | 说明 |
 |---|---|---|---|
 | customer | id | integer | 主键 |
-| customer | name | text | 展示名称，1–100 字符，不含 Excel 禁止字符 |
+| customer | name | text | 展示名称，同时是 Excel Sheet 名；去除首尾空白后 1–31 字符，不含 Excel 禁止字符、控制字符，不能以单引号开头或结尾 |
 | customer | normalized_name | text | NFKC、去首尾空白、合并空白、casefold；唯一 |
 | customer | notes | text | 备注，可空 |
 | customer | active | boolean | True 为有效，False 为归档 |

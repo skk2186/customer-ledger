@@ -35,9 +35,14 @@ class TimestampMixin:
 
 class Customer(TimestampMixin, db.Model):
     __tablename__ = "customer"
+    __table_args__ = (
+        CheckConstraint(
+            "length(name) BETWEEN 1 AND 31", name="ck_customer_name_excel_length"
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(31), nullable=False)
     normalized_name = db.Column(db.String(100), nullable=False, unique=True, index=True)
     notes = db.Column(db.Text, nullable=False, default="")
     active = db.Column(db.Boolean, nullable=False, default=True, server_default="1")

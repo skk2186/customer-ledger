@@ -10,6 +10,7 @@ class ValidationError(ValueError):
 
 
 EXCEL_SHEET_FORBIDDEN_CHARS = frozenset(':\\/?*[]')
+EXCEL_SHEET_NAME_MAX_LENGTH = 31
 
 
 def normalize_customer_name(name: str) -> str:
@@ -18,35 +19,24 @@ def normalize_customer_name(name: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", name).strip().split()).casefold()
 
 
-def validate_customer_name(name: str) -> str:
-    if not isinstance(name, str):
-        raise ValidationError("客户名称必须是文本。")
-    cleaned = name.strip()
-    if not cleaned:
-        raise ValidationError("客户名称不能为空。")
-    if len(cleaned) > 100:
-        raise ValidationError("客户名称不能超过 100 个字符。")
-    if any(char in EXCEL_SHEET_FORBIDDEN_CHARS for char in cleaned):
-        raise ValidationError("客户名称不能包含 Excel 禁止字符：: \\ / ? * [ ]。")
-    if any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
-        raise ValidationError("客户名称不能包含控制字符。")
-    return cleaned
-
-
-def validate_excel_sheet_name(name: str) -> str:
-    """Validate the future Excel adapter's Sheet-name contract."""
+def validate_excel_safe_name(name: str) -> str:
+    """Validate the one shared contract for customer names and Excel Sheet names."""
 
     if not isinstance(name, str):
-        raise ValidationError("Sheet 名称必须是文本。")
+        raise ValidationError("名称必须是文本。")
     cleaned = name.strip()
     if not cleaned:
-        raise ValidationError("Sheet 名称不能为空。")
-    if len(cleaned) > 31:
-        raise ValidationError("Sheet 名称不能超过 31 个字符。")
+        raise ValidationError("名称不能为空。")
+    if len(cleaned) > EXCEL_SHEET_NAME_MAX_LENGTH:
+        raise ValidationError("名称将直接用作 Excel Sheet 名，不能超过 31 个字符。")
     if any(char in EXCEL_SHEET_FORBIDDEN_CHARS for char in cleaned):
-        raise ValidationError("Sheet 名称包含 Excel 禁止字符：: \\ / ? * [ ]。")
+        raise ValidationError("名称不能包含 Excel 禁止字符：: \\ / ? * [ ]。")
     if any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
-        raise ValidationError("Sheet 名称不能包含控制字符。")
+        raise ValidationError("名称不能包含控制字符。")
     if cleaned.startswith("'") or cleaned.endswith("'"):
-        raise ValidationError("Sheet 名称不能以单引号开头或结尾。")
+        raise ValidationError("名称不能以单引号开头或结尾。")
     return cleaned
+
+
+validate_customer_name = validate_excel_safe_name
+validate_excel_sheet_name = validate_excel_safe_name

@@ -5,8 +5,8 @@
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 <form class="card form" method="post">
     <label for="name">客户名称 <span class="required">*</span></label>
-    <input id="name" name="name" value="{{ values.name }}" maxlength="100" required autofocus>
-    <p class="help">名称会做统一规范化后判重；不能包含 Excel 禁止字符。</p>
+    <input id="name" name="name" value="{{ values.name }}" maxlength="31" required autofocus>
+    <p class="help">客户名称将直接用作 Excel Sheet 名（1～31 个字符）；名称会规范化判重，不能包含 Excel 禁止字符。</p>
     <label for="notes">备注</label>
     <textarea id="notes" name="notes" rows="5">{{ values.notes }}</textarea>
     <div class="form-actions"><button class="button" type="submit">保存</button><a href="{{ url_for('main.customers') }}">取消</a></div>

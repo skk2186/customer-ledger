@@ -7,6 +7,7 @@
 - `tests/`：自动化测试。
 - `docs/`：产品、架构、数据字典、Excel 契约和测试计划。
 - `runtime_data/`、`private_samples/`、`exports/`、`backups/`、`logs/`：本地运行或敏感数据目录，禁止进入 Git。
+- 客户名称就是未来的 Excel Sheet 名：去除首尾空白后必须为 1–31 个字符，不能含 Excel 禁止字符、控制字符或首尾单引号；不截断、不自动改名。
 
 ## 运行与测试
 

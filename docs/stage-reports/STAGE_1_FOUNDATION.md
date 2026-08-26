@@ -17,8 +17,8 @@
 - `docs/PRODUCT_SPEC.md`、`docs/ARCHITECTURE.md`、`docs/DATA_DICTIONARY.md`、`docs/EXCEL_CONTRACT.md`、`docs/TEST_PLAN.md`。
 - `pyproject.toml`、`requirements-dev.txt`、`.gitignore`、`scripts/dev_start.ps1`。
 - `src/customer_ledger/`：应用工厂、路由、模板、静态样式、校验、客户服务和统一计算服务。
-- `migrations/`：`0001_foundation` 与 `0002_unique_normalized_name_index` 版本化迁移。
-- `tests/`：15 个自动化测试。
+- `migrations/`：`0001_foundation`、`0002_unique_normalized_name_index` 与 `0003_enforce_excel_safe_customer_name` 版本化迁移。
+- `tests/`：19 个自动化测试。
 
 ## 模型
 
@@ -34,7 +34,7 @@ pip install -e ".[dev]"                      PASS
 flask --app "customer_ledger:create_app" db upgrade（空库） PASS
 同一 db upgrade 再次执行                    PASS
 flask --app "customer_ledger:create_app" db check             PASS
-python -m pytest                             15 passed
+python -m pytest                             19 passed
 python -m ruff check .                       All checks passed
 本地启动 smoke：/healthz 200、/ 200          PASS
 服务进程关闭后不存在                         PASS
@@ -42,6 +42,14 @@ Git 产物审计：无跟踪 Excel/数据库/运行产物     PASS
 ```
 
 覆盖内容包括 0.01 元精确往返、应收 8400 元、退板吨位/平方数不改变应收、负应收、分配上限、跨客户分配、名称规范化重名、非法 Sheet 名、归档恢复和账务历史删除保护。
+
+## 外部审核修复
+
+- 问题：客户名称原先允许最多 100 个字符，与未来 Excel Sheet 名的 31 字符规则冲突。
+- 修复：新增唯一共享入口 `validate_excel_safe_name`，客户新增、修改和 Sheet 校验统一执行 1–31 字符、Excel 禁止字符、控制字符及首尾单引号规则；不截断、不自动改名。表单 `maxlength` 已改为 31，并明确提示名称会直接用作 Excel Sheet 名。
+- 数据库：新增 `0003_enforce_excel_safe_customer_name`，将 `Customer.name` 改为 `VARCHAR(31)` 并增加长度 CHECK。迁移会先检测旧库超长/空名称，发现不合规即中止，不修改数据；`0001`、`0002` 未改动。
+- Excel 契约：固定只导出 `.xlsx`、客户 Sheet 名与客户名称完全一致、首个 Sheet 为“客户汇总总表”、客户表 13 列顺序、末行为“合计”；本阶段未实现导出。
+- 真实修复验收：`pytest` 19 passed；`ruff check .` 通过；空库升级、从 0002 旧库升级、重复升级和 `flask db check` 通过；超长旧数据迁移会安全阻断且原值不变；首页与 `/healthz` 启动烟雾测试及 Git 敏感文件检查通过。
 
 ## 风险与边界
 

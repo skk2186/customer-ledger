@@ -9,8 +9,8 @@
 | 项目 | 状态 | 证据或说明 |
 | --- | --- | --- |
 | Windows onedir 构建 | PASS | scripts\build_windows.ps1 通过；dist\CustomerLedger 目录大小 29.79 MiB，包含 exe、模板、静态资源和迁移文件 |
-| 发布包不依赖外部 Python | PASS | Windows Sandbox 干净会话中限制 PATH、清除 Python 环境变量后，候选包启动并完成流程 |
-| 匿名端到端流程 | PASS | 真实候选程序本机 HTTP 流程：新增客户、发货、超额收款、账目、未分配预收、追加收款和汇总 |
+| 发布包不依赖外部 Python | PASS | Windows Sandbox 干净会话中无 Python、无虚拟环境和源码路径，候选包启动并完成流程 |
+| 匿名端到端流程 | PASS | 同一 Sandbox 会话完成新增客户、暂未付款发货、收款分配、超额收款、未分配预收、追加发货、汇总和恢复 |
 | 三种 .xlsx 导出 | PASS | 真实候选程序返回三个有效 ZIP/XLSX 文件，未写入仓库 |
 | WPS 实际打开 | PASS | 使用显式 WPS et.exe 打开三份真实导出工作簿；未修改 .xlsx 默认 Excel 关联 |
 | 备份恢复 | PASS | 真实候选程序完成手动备份、增加合成记录、恢复并验证恢复前后的数据差异 |
@@ -19,15 +19,17 @@
 | 完全离线运行 | PASS | Windows Sandbox 使用 Networking=Disable；回环访问、记账和导出成功，外部网络请求被阻断 |
 | 第二实例阻止 | PASS | 第二个相同候选程序被 Windows 命名互斥体拦截 |
 | 持久安全锁 | PASS | 真实候选程序在保护标记存在时对写入和导出返回 503，移除临时标记后恢复 |
+| 迁移失败回滚与写保护 | PASS | 部分迁移失败后恢复升级前账库；回滚失败写入持久保护标记，重启后写入和导出仍被阻止 |
+| 启动诊断日志 | PASS | 启动日志为有限结构化记录，仅保留类别、类型和安全摘要，不含异常全文、路径、SQL 或客户数据 |
 | 旧账 .xls Dry Run | PASS | 仅使用已授权的 2 个真实旧表做 Dry Run；源文件摘要未改变，未执行导入 |
 | 用户可见英文清理 | PASS | 阶段二界面英文关键词和装饰性英文扫描无命中 |
-| 全部 pytest | PASS | 84 passed |
+| 全部 pytest | PASS | 86 passed |
 | ruff | PASS | ruff check . 通过，输出 All checks passed! |
 | 迁移重复执行和检查 | PASS | flask db upgrade 两次均成功，flask db check 成功 |
 | Git 与发布包敏感文件检查 | PASS | 未发现已跟踪运行数据库、旧表、工作簿、日志、备份或发布运行产物 |
 
 ## 当前判定
 
-**PASS**。代码、构建、干净 Windows、断网、本机合成流程和 WPS 打开均已通过，可以创建阶段五本地提交。
+**PASS**。最终定向修复、代码、构建、干净 Windows、断网、本机合成流程、备份恢复、重启持久化和 WPS 打开均已通过，可以创建最终本地修复提交。
 
 按要求只创建本地提交，不 push、不创建 PR、不创建 GitHub Release。

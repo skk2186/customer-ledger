@@ -14,8 +14,8 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "The project virtual environment was not found."
 }
 
-$editableTarget = $root + "[release,build]"
-& $python -m pip install --trusted-host mirrors.aliyun.com -e $editableTarget
+$editableTarget = $root + "[dev,release,build]"
+& $python -m pip install -e $editableTarget
 if ($LASTEXITCODE -ne 0) {
     throw "Release build dependencies could not be installed."
 }

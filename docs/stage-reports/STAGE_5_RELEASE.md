@@ -27,7 +27,7 @@
 
 ## 自动化测试与命令
 
-- 阶段五加入 8 项测试；全部测试结果为 84 passed。
+- 阶段五共 10 项自动化测试；最终全部测试结果为 86 passed。
 - ruff check .：PASS，输出 All checks passed!。
 - flask db upgrade：PASS。
 - 第二次 flask db upgrade：PASS，重复执行安全。
@@ -57,16 +57,15 @@
 
 补充的真实窗口关闭验收通过：向本次候选程序自身窗口发送正常关闭消息后，进程自行退出，未留下候选程序进程。
 
-## 阶段五验收修复与最终结果
+## 阶段五最终发布候选定向修复与最终结果
 
-- 修复原因：阶段五初始记录只完成了主机上的限制 PATH 验收，尚不足以证明发布包能在无 Python 的干净 Windows 和完全断网条件下运行。
-- 修复内容：启用 Windows Sandbox，使用 Networking=Disable 和只读候选程序目录映射，在隔离会话中完成启动、记账、超额收款、预收、账目页脚和三种导出验收；补充了真实窗口正常关闭验证。
-- 新增测试：阶段五自动化测试 8 项；隔离会话增加无 Python、断网、候选启动、业务流程、账目口径和三种工作簿的验收检查。
-- 实际测试数量：全部 pytest 84 passed。
-- 手工验收结果：候选程序启动、客户和发货流程、超额初始收款、未分配预收、追加收款、汇总、备份恢复、重启持久化、程序目录替换、暂未付款、第二实例、安全锁、三种工作簿及 WPS 打开均 PASS；Excel 默认打开方式保持不变。
-- 浏览器控制组件在本机初始化时退出，因此本次真实候选程序流程以本机 HTTP、页面模板和生成文件校验为依据，未宣称完成 GUI 视觉手工验收。
-- 未创建新分支、PR 或远程推送；阶段五提交仅在本报告确认通过后创建。
+- 修复原因：阶段五验收发现迁移失败保护、启动诊断脱敏和完全断网的干净 Windows 证据仍需补齐；原 Sandbox 验收脚本的编码和部分文案断言也需要修正。
+- 修复内容：迁移失败时释放数据库连接并从升级前备份恢复；回滚失败持久化 `migration_rollback_failed` 写保护并在重启后阻止写入和导出；启动日志改为有限结构化安全记录；构建脚本安装开发、发布和构建依赖且不依赖不安全镜像配置。
+- 新增测试：`test_partial_migration_failure_restores_original_database`、`test_migration_rollback_failure_creates_safety_lock`、启动日志结构化脱敏测试；补充发布候选和 Sandbox 回归检查。
+- 实际测试数量：全部 pytest 86 passed；ruff check . PASS；两次 flask db upgrade 和 flask db check PASS。
+- Windows Sandbox 完整 E2E：`Networking=Disable` 单一会话中完成启动、合成客户、暂未付款发货、收款及分配、超额收款、未分配预收、第二笔发货、预收分配、账目页脚、汇总、三份 XLSX 导出、手工备份、合成修改、恢复、审计、正常关闭和重启持久化；无 Python、无虚拟环境、无源码路径，全部 PASS。
+- 手工验收结果：候选程序启动、备份恢复、审计、第二实例保护、持久安全锁、程序目录替换、三份工作簿及 WPS 打开均 PASS；Excel 默认打开方式保持不变，未修改用户办公软件设置。
+- 旧账 Dry Run：仅对已授权旧表执行预览，源文件摘要保持不变，未执行导入。
+- 未创建新分支、PR 或远程推送；不创建 GitHub Release。最终本地提交信息为 `fix stage 5: complete release safety acceptance`。
 
-最终结论：PASS。不创建新分支、PR、远程推送或 GitHub Release；仅创建本地提交：
-
-stage 5: windows release candidate
+最终结论：PASS。

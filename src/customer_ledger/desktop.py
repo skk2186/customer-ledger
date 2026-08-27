@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
+import shutil
 import threading
 import time
-import traceback
 import urllib.error
 import urllib.request
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 from flask_migrate import upgrade
@@ -21,6 +24,7 @@ from .backup_service import (
     create_backup,
     current_schema_version,
     safety_lock_exists,
+    write_safety_lock,
 )
 from .runtime_paths import (
     RuntimePaths,
@@ -77,16 +81,55 @@ def _startup_error(message: str) -> StartupError:
     return StartupError(message)
 
 
+def _dispose_database(app) -> None:
+    with app.app_context():
+        db.session.rollback()
+        db.session.remove()
+        db.engine.dispose()
+
+
+def _restore_database_from_backup(
+    app,
+    paths: RuntimePaths,
+    backup_manifest,
+    expected_schema_version: str,
+) -> None:
+    """Restore the exact pre-migration database through a checked temp file."""
+
+    backup_path = paths.backup_root / backup_manifest.database_filename
+    if not backup_path.is_file():
+        raise BackupError("升级前备份文件不存在，无法恢复原账库。")
+    temporary = paths.database_path.with_name(
+        f".{paths.database_path.name}.{uuid.uuid4().hex}.migration-rollback"
+    )
+    try:
+        _dispose_database(app)
+        shutil.copyfile(backup_path, temporary)
+        check_database_integrity(temporary)
+        if current_schema_version(temporary) != expected_schema_version:
+            raise BackupError("升级前备份的结构版本不符合预期。")
+        os.replace(temporary, paths.database_path)
+        check_database_integrity(paths.database_path)
+        if current_schema_version(paths.database_path) != expected_schema_version:
+            raise BackupError("恢复后的账库结构版本不符合预期。")
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def initialize_database(app, paths: RuntimePaths) -> None:
     """Validate, back up and migrate a database without create_all()."""
 
     database_exists = paths.database_path.is_file()
+    before_migration_backup = None
     if database_exists:
         try:
             with app.app_context():
                 check_database_integrity(paths.database_path)
                 current_schema_version(paths.database_path)
-                create_backup(
+                before_migration_backup = create_backup(
                     db.engine,
                     backup_dir=paths.backup_root,
                     reason="before_migration",
@@ -99,15 +142,34 @@ def initialize_database(app, paths: RuntimePaths) -> None:
         with app.app_context():
             upgrade(directory=str(paths.migrations_root))
     except Exception as exc:
-        with app.app_context():
-            db.session.rollback()
-            db.session.remove()
-            db.engine.dispose()
-        raise _startup_error("账库升级失败，已停止启动；请保留原有账库和升级前备份。") from exc
+        if before_migration_backup is not None:
+            try:
+                _restore_database_from_backup(
+                    app,
+                    paths,
+                    before_migration_backup,
+                    before_migration_backup.schema_version,
+                )
+            except Exception as rollback_exc:
+                try:
+                    write_safety_lock(
+                        paths.safety_lock_path,
+                        reason_code="migration_rollback_failed",
+                        error_category="migration",
+                    )
+                except BackupError as lock_exc:
+                    raise _startup_error(
+                        "账库升级和自动恢复均失败，保护标记也无法保存；请立即停止操作。"
+                    ) from lock_exc
+                raise _startup_error(
+                    "账库升级和自动恢复均失败，账库已进入保护状态。"
+                ) from rollback_exc
+        raise _startup_error("账库升级失败，已恢复到升级前状态；启动已停止。") from exc
     finally:
-        with app.app_context():
-            db.session.remove()
-            db.engine.dispose()
+        try:
+            _dispose_database(app)
+        except Exception:
+            pass
 
     try:
         check_database_integrity(paths.database_path)
@@ -247,10 +309,26 @@ def _write_startup_diagnostic(error: BaseException) -> None:
         paths = resolve_runtime_paths()
         ensure_runtime_directories(paths)
         diagnostic = paths.logs_root / "startup.log"
-        diagnostic.write_text(
-            f"{type(error).__name__}: {error}\n{traceback.format_exc()}",
-            encoding="utf-8",
-        )
+        if isinstance(error, BackupError):
+            error_category = "backup"
+            safe_summary = "账库或备份检查失败。"
+        elif isinstance(error, OSError):
+            error_category = "filesystem"
+            safe_summary = "本机文件操作失败。"
+        elif isinstance(error, StartupError):
+            error_category = "startup"
+            safe_summary = "启动检查未通过。"
+        else:
+            error_category = "startup"
+            safe_summary = "启动失败，请检查安装文件和本机数据目录。"
+        payload = {
+            "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "app_version": __version__,
+            "error_category": error_category,
+            "error_type": type(error).__name__,
+            "safe_summary": safe_summary,
+        }
+        diagnostic.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
     except Exception:
         pass
 

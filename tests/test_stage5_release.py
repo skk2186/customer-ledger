@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from flask import Flask
+from sqlalchemy import func, select
 
 import customer_ledger.desktop as desktop
 from customer_ledger import create_app
-from customer_ledger.backup_service import current_schema_version, list_backups
+from customer_ledger.backup_service import (
+    check_database_integrity,
+    current_schema_version,
+    list_backups,
+    safety_lock_exists,
+)
+from customer_ledger.customer_service import create_customer
 from customer_ledger.desktop import (
     LocalWsgiServer,
     SingleInstance,
@@ -17,6 +26,7 @@ from customer_ledger.desktop import (
     initialize_database,
 )
 from customer_ledger.extensions import db
+from customer_ledger.models import Customer
 from customer_ledger.runtime_paths import (
     ensure_runtime_directories,
     resolve_documents_root,
@@ -100,24 +110,126 @@ def test_desktop_database_initialization_migrates_and_backs_up_existing_database
         db.engine.dispose()
 
 
-def test_migration_failure_preserves_database_and_upgrade_backup(tmp_path, monkeypatch):
+def test_partial_migration_failure_restores_original_database(tmp_path, monkeypatch):
     paths = _temporary_paths(tmp_path)
     ensure_runtime_directories(paths)
     app = create_app({**paths.app_config(), "TESTING": True})
     initialize_database(app, paths)
 
-    def fail_upgrade(**_kwargs):
-        raise RuntimeError("synthetic migration failure")
+    with app.app_context():
+        create_customer(db.session, "Partial Migration Customer")
+        db.session.commit()
+        original_customer_count = db.session.scalar(select(func.count(Customer.id)))
+        original_schema = current_schema_version(paths.database_path)
+        db.session.remove()
 
-    monkeypatch.setattr(desktop, "upgrade", fail_upgrade)
+    def partial_upgrade(**_kwargs):
+        connection = sqlite3.connect(paths.database_path)
+        try:
+            connection.execute(
+                "CREATE TABLE synthetic_partial_migration (id INTEGER NOT NULL)"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        raise RuntimeError("synthetic partial migration failure")
+
+    monkeypatch.setattr(desktop, "upgrade", partial_upgrade)
     with pytest.raises(StartupError, match="账库升级失败"):
         initialize_database(app, paths)
 
     assert paths.database_path.is_file()
     assert any(item.reason == "before_migration" for item in list_backups(paths.backup_root))
+    assert current_schema_version(paths.database_path) == original_schema
+    check_database_integrity(paths.database_path)
+    with sqlite3.connect(paths.database_path) as connection:
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='synthetic_partial_migration'"
+            ).fetchone()
+            is None
+        )
+    with app.app_context():
+        assert db.session.scalar(select(func.count(Customer.id))) == original_customer_count
+        db.session.remove()
+        db.engine.dispose()
+
+
+def test_migration_rollback_failure_creates_safety_lock(tmp_path, monkeypatch):
+    paths = _temporary_paths(tmp_path)
+    ensure_runtime_directories(paths)
+    app = create_app({**paths.app_config(), "TESTING": True})
+    initialize_database(app, paths)
+
+    def partial_upgrade(**_kwargs):
+        connection = sqlite3.connect(paths.database_path)
+        try:
+            connection.execute("CREATE TABLE synthetic_failed_rollback (id INTEGER)")
+            connection.commit()
+        finally:
+            connection.close()
+        raise RuntimeError("synthetic migration failure")
+
+    def fail_restore(*_args, **_kwargs):
+        raise RuntimeError("synthetic rollback failure")
+
+    monkeypatch.setattr(desktop, "upgrade", partial_upgrade)
+    monkeypatch.setattr(desktop, "_restore_database_from_backup", fail_restore)
+    with pytest.raises(StartupError, match="保护状态"):
+        initialize_database(app, paths)
+
+    assert safety_lock_exists(paths.safety_lock_path)
+    locked_app = create_app({**paths.app_config(), "TESTING": True})
+    with locked_app.test_client() as locked_client:
+        assert locked_client.get("/customers/new").status_code == 200
+        assert (
+            locked_client.post(
+                "/customers/new",
+                data={"name": "Blocked Synthetic Customer", "notes": ""},
+            ).status_code
+            == 503
+        )
     with app.app_context():
         db.session.remove()
         db.engine.dispose()
+    with locked_app.app_context():
+        db.session.remove()
+        db.engine.dispose()
+
+
+def test_startup_diagnostic_is_structured_and_redacts_sensitive_exception(
+    tmp_path, monkeypatch
+):
+    data_root = tmp_path / "data-root"
+    monkeypatch.setenv("CUSTOMER_LEDGER_DATA_ROOT", str(data_root))
+    monkeypatch.setenv("CUSTOMER_LEDGER_LOG_DIR", str(data_root / "logs"))
+    monkeypatch.setenv("CUSTOMER_LEDGER_BACKUP_DIR", str(data_root / "backups"))
+    monkeypatch.setenv("CUSTOMER_LEDGER_EXPORTS_DIR", str(data_root / "exports"))
+    monkeypatch.setenv(
+        "CUSTOMER_LEDGER_IMPORT_REPORT_DIR", str(data_root / "import_reports")
+    )
+
+    desktop._write_startup_diagnostic(
+        RuntimeError(r"C:\Users\SyntheticSecret\private_samples\xxx.xls")
+    )
+
+    diagnostic = data_root / "logs" / "startup.log"
+    payload = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert payload["timestamp"]
+    assert payload["app_version"] == desktop.__version__
+    assert payload["error_category"] == "startup"
+    assert payload["safe_summary"] == "启动失败，请检查安装文件和本机数据目录。"
+    content = diagnostic.read_text(encoding="utf-8")
+    for forbidden in (
+        "SyntheticSecret",
+        "private_samples",
+        "xxx.xls",
+        "Traceback",
+        'File "',
+        "C:",
+    ):
+        assert forbidden not in content
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows named mutex is a release-only guard")

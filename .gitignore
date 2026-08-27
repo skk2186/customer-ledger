@@ -31,6 +31,8 @@ import_reports/
 dist/
 build/
 *.whl
+*.exe
+*.zip
 
 # IDE/OS
 .idea/

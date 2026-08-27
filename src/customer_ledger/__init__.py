@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from pathlib import Path
 
 from flask import Flask, render_template, request
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,34 +16,29 @@ from .backup_service import (
     safety_lock_exists,
 )
 from .extensions import db, migrate
+from .runtime_paths import resolve_runtime_paths
+from .version import __version__
 
 
 def create_app(test_config: dict | None = None) -> Flask:
     """Create a configured application without creating database tables implicitly."""
 
-    app = Flask(__name__)
-    project_root = Path(__file__).resolve().parents[2]
-    default_db_path = project_root / "runtime_data" / "customer_ledger.db"
-    default_db_path.parent.mkdir(parents=True, exist_ok=True)
+    paths = resolve_runtime_paths()
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    app = Flask(
+        __name__,
+        template_folder=str(paths.package_root / "templates"),
+        static_folder=str(paths.package_root / "static"),
+    )
+    defaults = paths.app_config()
+    if os.environ.get("SQLALCHEMY_DATABASE_URI"):
+        defaults["SQLALCHEMY_DATABASE_URI"] = os.environ["SQLALCHEMY_DATABASE_URI"]
 
     app.config.from_mapping(
+        defaults,
         SECRET_KEY=os.environ.get("CUSTOMER_LEDGER_SECRET_KEY", "local-development-only"),
-        SQLALCHEMY_DATABASE_URI=os.environ.get(
-            "SQLALCHEMY_DATABASE_URI", f"sqlite:///{default_db_path}"
-        ),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        MIGRATIONS_DIR=str(project_root / "migrations"),
-        EXPORTS_DIR=os.environ.get("CUSTOMER_LEDGER_EXPORTS_DIR", str(project_root / "exports")),
-        IMPORT_REPORT_DIR=os.environ.get(
-            "CUSTOMER_LEDGER_IMPORT_REPORT_DIR",
-            str(project_root / "runtime_data" / "import_reports"),
-        ),
-        BACKUP_DIR=os.environ.get("CUSTOMER_LEDGER_BACKUP_DIR", str(project_root / "backups")),
-        SAFETY_LOCK_PATH=os.environ.get(
-            "CUSTOMER_LEDGER_SAFETY_LOCK_PATH",
-            str(project_root / "runtime_data" / "WRITE_BLOCKED"),
-        ),
-        APP_VERSION="stage-4",
+        APP_VERSION=__version__,
         LEDGER_PAGE_SIZE=50,
         JSON_AS_ASCII=False,
     )

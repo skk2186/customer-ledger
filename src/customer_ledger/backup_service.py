@@ -139,6 +139,12 @@ def _integrity_check(path: Path) -> None:
         connection.close()
 
 
+def check_database_integrity(path: str | Path) -> None:
+    """Check a live database without exposing the private implementation."""
+
+    _integrity_check(Path(path).resolve())
+
+
 def _manifest_from_dict(data: dict, filename: str) -> BackupManifest:
     required = {
         "format_version",

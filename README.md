@@ -1,6 +1,6 @@
 # 客户快捷填表系统
 
-阶段三在阶段二本地记账闭环上增加受契约约束的 `.xlsx` 导出，以及旧 `.xls` 的只读试算、确认导入、备份和对账流程。
+这是一个本机优先的客户快捷填表和账目管理系统，当前包含 Windows 桌面发布候选版。
 
 ## 安装
 
@@ -11,7 +11,13 @@ py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-## 启动
+## Windows 桌面版
+
+发布包是 dist\CustomerLedger\ 目录，双击其中的 CustomerLedger.exe 即可使用，不需要安装 Python，也不使用 Flask 开发服务器。
+
+桌面版只在本机 127.0.0.1 启动服务，账库和运行状态默认保存在 %LOCALAPPDATA%\CustomerLedger；备份默认保存在“文档\客户账本备份”，导出文件默认保存在“文档\客户账本导出”。替换程序目录前请先关闭程序，不要删除上述用户数据目录。
+
+## 开发启动
 
 ```powershell
 .\.venv\Scripts\python.exe -m flask --app "customer_ledger:create_app" db upgrade
@@ -54,4 +60,4 @@ tests/
 pyproject.toml
 ```
 
-运行时数据库默认写入被 Git 忽略的 `runtime_data/customer_ledger.db`；导出、Dry Run 报告和备份也只写入被忽略目录。旧 `.xls` 原件应放在 `private_samples/` 或用户明确指定的外部目录，绝不提交到 Git。完整备份恢复、Windows 打包和更大范围的旧账治理不在本阶段范围内；文件边界以 [EXCEL_CONTRACT.md](docs/EXCEL_CONTRACT.md) 为准。
+开发模式的运行时数据库默认写入被 Git 忽略的 runtime_data/customer_ledger.db；导出、Dry Run 报告和备份也只写入被忽略目录。旧 .xls 原件应放在 private_samples/ 或用户明确指定的外部目录，绝不提交到 Git。Windows 构建说明见 WINDOWS_DEPLOYMENT.md，最终验收记录见 FINAL_ACCEPTANCE.md。

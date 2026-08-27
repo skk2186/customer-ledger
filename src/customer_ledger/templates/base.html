@@ -13,11 +13,18 @@
             <a href="{{ url_for('main.new_shipment') }}">新增一笔</a>
             <a href="{{ url_for('main.summary') }}">客户汇总总表</a>
             <a href="{{ url_for('main.customers') }}">客户管理</a>
+            <a href="{{ url_for('main.export_settings') }}">导出设置</a>
             <a href="{{ url_for('main.backups') }}">备份恢复</a>
             <a href="{{ url_for('main.audit') }}">操作记录</a>
             <a class="subtle-nav" href="{{ url_for('main.legacy_import') }}">旧账迁移</a>
         </nav>
     </header>
+    {% if request.endpoint not in ('main.index', 'main.healthz') %}
+    <nav class="page-toolbar" aria-label="页面导航">
+        <a class="back-link" href="{{ back_url|default(url_for('main.index'), true) }}">← 返回上一级{% if back_label|default('首页', true) %}<span class="nav-target">（{{ back_label|default('首页', true) }}）</span>{% endif %}</a>
+        <a class="home-link" href="{{ url_for('main.index') }}">⌂ 返回首页</a>
+    </nav>
+    {% endif %}
     <main class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% for category, message in messages %}

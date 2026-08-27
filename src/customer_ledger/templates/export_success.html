@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - 客户快捷填表系统{% endblock %}
+{% block content %}
+<section class="card export-success" aria-live="polite">
+    <p class="eyebrow">导出完成</p>
+    <h1>{{ title }}</h1>
+    <div class="flash success"><strong>导出成功：{{ filename }}</strong><br>已保存到：{{ directory }}</div>
+    <p class="help">文件已经保存在上面的文件夹中，本次不会另外复制到浏览器下载目录。</p>
+    <div class="form-actions">
+        <button class="button" id="open-export-directory" type="button">打开导出文件夹</button>
+        <a class="button secondary" href="{{ back_url }}">返回{{ back_label }}</a>
+    </div>
+    <p class="help" id="open-export-help" hidden>请在文件管理器中打开上方文件夹。</p>
+</section>
+<script>
+(() => {
+    const button = document.getElementById('open-export-directory');
+    const help = document.getElementById('open-export-help');
+    if (!button) return;
+    button.addEventListener('click', async () => {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.open_export_directory) {
+            const opened = await window.pywebview.api.open_export_directory();
+            if (!opened && help) help.hidden = false;
+            return;
+        }
+        if (help) help.hidden = false;
+    });
+})();
+</script>
+{% endblock %}

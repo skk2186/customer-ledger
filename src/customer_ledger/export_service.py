@@ -57,6 +57,35 @@ _HEADER_FILL = PatternFill("solid", fgColor="DCE6F7")
 _TITLE_FILL = PatternFill("solid", fgColor="2459A6")
 _TOTAL_FILL = PatternFill("solid", fgColor="EEF3FA")
 _BORDER = Border(bottom=Side(style="thin", color="D9E1F2"))
+CUSTOMER_COLUMN_WIDTHS = {
+    "A": 12,
+    "B": 16,
+    "C": 14,
+    "D": 14,
+    "E": 13,
+    "F": 15,
+    "G": 15,
+    "H": 13,
+    "I": 16,
+    "J": 16,
+    "K": 16,
+    "L": 14,
+    "M": 34,
+}
+SUMMARY_COLUMN_WIDTHS = {
+    "A": 24,
+    "B": 16,
+    "C": 15,
+    "D": 15,
+    "E": 14,
+    "F": 16,
+    "G": 16,
+    "H": 14,
+    "I": 16,
+    "J": 16,
+    "K": 16,
+    "L": 14,
+}
 
 
 class ExportError(ValueError):
@@ -184,7 +213,7 @@ def _configure_header(sheet, row_number: int, headers: tuple[str, ...]) -> None:
         cell = sheet.cell(row_number, column, header)
         cell.font = Font(bold=True)
         cell.fill = _HEADER_FILL
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
         cell.border = _BORDER
 
 
@@ -206,7 +235,7 @@ def _write_customer_sheet(
                 cell.number_format = _QUANTITY_FORMAT
     _write_customer_total(sheet, len(rows) + 3)
     sheet.freeze_panes = "A3"
-    _finish_sheet(sheet, CUSTOMER_HEADERS)
+    _finish_sheet(sheet, CUSTOMER_HEADERS, CUSTOMER_COLUMN_WIDTHS, header_row=2)
 
 
 def _write_customer_total(sheet, row_number: int) -> None:
@@ -274,21 +303,54 @@ def _write_summary_sheet(session, workbook: Workbook, as_of: date) -> None:
         cell.fill = _TOTAL_FILL
         cell.border = _BORDER
     sheet.freeze_panes = "A2"
-    _finish_sheet(sheet, SUMMARY_HEADERS)
+    _finish_sheet(sheet, SUMMARY_HEADERS, SUMMARY_COLUMN_WIDTHS, header_row=1)
 
 
-def _finish_sheet(sheet, headers: tuple[str, ...]) -> None:
-    widths = {
-        column: max(len(str(headers[column - 1])) + 2, 12)
-        for column in range(1, len(headers) + 1)
-    }
+def _finish_sheet(
+    sheet,
+    headers: tuple[str, ...],
+    column_widths: dict[str, int],
+    *,
+    header_row: int,
+) -> None:
+    for column, width in column_widths.items():
+        sheet.column_dimensions[column].width = width
     for row in sheet.iter_rows():
         for cell in row:
-            if cell.value is not None:
-                widths[cell.column] = min(max(widths[cell.column], len(str(cell.value)) + 2), 28)
-    for column, width in widths.items():
-        sheet.column_dimensions[chr(64 + column)].width = width
+            if cell.row == 1 and header_row != 1:
+                continue
+            if cell.row == header_row:
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+            elif cell.column == 1:
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+            elif cell.column in MONEY_COLUMNS or cell.column in QUANTITY_COLUMNS:
+                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            elif cell.column == len(headers):
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+    sheet.row_dimensions[header_row].height = 30
+    for row_number in range(header_row + 1, sheet.max_row + 1):
+        last_value = str(sheet.cell(row_number, len(headers)).value or "")
+        sheet.row_dimensions[row_number].height = 28 if len(last_value) > 24 else 23
     sheet.sheet_view.showGridLines = False
+
+
+def next_export_path(directory: str | Path, filename: str) -> Path:
+    """Return a non-overwriting destination using the requested name plus _2, _3, ..."""
+
+    directory_path = Path(directory)
+    directory_path.mkdir(parents=True, exist_ok=True)
+    source = Path(filename)
+    candidate = directory_path / source.name
+    if not candidate.exists():
+        return candidate
+    counter = 2
+    while True:
+        candidate = directory_path / f"{source.stem}_{counter}{source.suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 
 def export_customer_workbook(session, customer_id: int, destination: str | Path) -> Path:

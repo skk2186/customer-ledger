@@ -39,10 +39,11 @@
         <p class="help">尚未付款请选择“暂未付款”；系统不会生成 0 元收款记录。</p>
         <label for="initial_received">初始收款金额</label>
         <input id="initial_received" name="initial_received" inputmode="decimal" placeholder="0.00" value="{{ values.initial_received }}">
-        <label for="payment_method">付款方式（已收款时选择）</label>
+        <label for="payment_method">收款情况（快捷选择）</label>
         <select id="payment_method" name="payment_method">
             {% for method in payment_methods %}<option value="{{ method }}"{% if values.payment_method == method %} selected{% endif %}>{{ method }}</option>{% endfor %}
         </select>
+        <p class="help">没有收款请选择“暂未付款”；已收款时再选择银行转账、微信、支付宝、现金或其他，并填写金额。</p>
         <label for="payment_description">收款说明</label>
         <textarea id="payment_description" name="payment_description" rows="2">{{ values.payment_description }}</textarea>
     </fieldset>

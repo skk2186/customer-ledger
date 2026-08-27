@@ -62,6 +62,7 @@ from .export_service import (
     export_all_ledger_workbook,
     export_customer_workbook,
     export_summary_workbook,
+    next_export_path,
 )
 from .extensions import db
 from .legacy_import_service import (
@@ -70,6 +71,11 @@ from .legacy_import_service import (
     dry_run_legacy_import,
 )
 from .models import AuditEvent, Customer, Payment, PaymentAllocation, Shipment
+from .settings_service import (
+    SettingsError,
+    save_export_directory,
+    validate_export_directory,
+)
 from .validation import (
     INITIAL_PAYMENT_OPTIONS,
     PAYMENT_METHODS,
@@ -192,6 +198,8 @@ def _render_backups(error: str | None = None):
         "backups.html",
         backups=list_backups(current_app.config["BACKUP_DIR"]),
         error=error,
+        back_url=url_for("main.index"),
+        back_label="首页",
     )
 
 
@@ -238,9 +246,9 @@ def _shipment_values(shipment: Shipment) -> dict[str, str | int]:
     }
 
 
-def _new_shipment_values() -> dict[str, str | int]:
+def _new_shipment_values(customer_id: str = "") -> dict[str, str | int]:
     return {
-        "customer_id": "",
+        "customer_id": customer_id,
         "shipment_date": date.today().isoformat(),
         "total_amount": "",
         "freight": "",
@@ -276,7 +284,13 @@ def customers():
             or_(Customer.name.contains(query), Customer.normalized_name.contains(query.casefold()))
         )
     customer_list = db.session.scalars(statement).all()
-    return render_template("customers.html", customers=customer_list, query=query)
+    return render_template(
+        "customers.html",
+        customers=customer_list,
+        query=query,
+        back_url=url_for("main.index"),
+        back_label="首页",
+    )
 
 
 @main_bp.route("/customers/new", methods=["GET", "POST"])
@@ -290,7 +304,14 @@ def new_customer():
             db.session.commit()
             flash("客户已新增。", "success")
             return redirect(url_for("main.customers"))
-    return render_template("customer_form.html", customer=None, values=values, error=error)
+    return render_template(
+        "customer_form.html",
+        customer=None,
+        values=values,
+        error=error,
+        back_url=url_for("main.customers"),
+        back_label="客户列表",
+    )
 
 
 @main_bp.route("/customers/<int:customer_id>/edit", methods=["GET", "POST"])
@@ -307,7 +328,14 @@ def edit_customer(customer_id: int):
             db.session.commit()
             flash("客户信息已保存。", "success")
             return redirect(url_for("main.customers"))
-    return render_template("customer_form.html", customer=customer, values=values, error=error)
+    return render_template(
+        "customer_form.html",
+        customer=customer,
+        values=values,
+        error=error,
+        back_url=url_for("main.customers"),
+        back_label="客户列表",
+    )
 
 
 @main_bp.post("/customers/<int:customer_id>/archive")
@@ -336,7 +364,7 @@ def restore(customer_id: int):
 
 @main_bp.route("/shipments/new", methods=["GET", "POST"])
 def new_shipment():
-    values = _new_shipment_values()
+    values = _new_shipment_values(request.args.get("customer_id", ""))
     token = _new_token()
     error = None
     if request.method == "POST":
@@ -361,6 +389,12 @@ def new_shipment():
         error=error,
         token=token,
         payment_methods=INITIAL_PAYMENT_OPTIONS,
+        back_url=(
+            url_for("main.customer_ledger", customer_id=int(values["customer_id"]))
+            if str(values["customer_id"]).isdigit()
+            else url_for("main.index")
+        ),
+        back_label="客户账目" if str(values["customer_id"]).isdigit() else "首页",
     )
 
 
@@ -412,6 +446,8 @@ def edit_shipment(shipment_id: int):
         error=error,
         token=token,
         payment_methods=PAYMENT_METHODS,
+        back_url=url_for("main.customer_ledger", customer_id=customer.id),
+        back_label="客户账目",
     )
 
 
@@ -434,7 +470,7 @@ def void_shipment_route(shipment_id: int):
         request.form.get("submission_token", ""),
     )
     if error is None:
-        flash("发货已作废，相关分配已撤销并转为预收。", "success")
+        flash("发货已作废，相关对应关系已取消并转为预收。", "success")
     else:
         flash(error, "error")
     return redirect(url_for("main.customer_ledger", customer_id=customer_id))
@@ -467,16 +503,26 @@ def customer_ledger(customer_id: int):
         .order_by(Payment.payment_date.desc(), Payment.id.desc())
         .limit(per_page)
         .offset((int(payment_page["page"]) - 1) * per_page)
-    ).all()
+        ).all()
     active_shipments = [row.shipment for row in rows if row.shipment.active]
-    payment_rows = [
-        {
-            "payment": payment,
-            "unallocated_cents": payment_unallocated_cents(db.session, payment),
-            "allocations": payment.allocations,
-        }
-        for payment in payments
-    ]
+    payment_rows = []
+    for payment in payments:
+        unallocated_cents = payment_unallocated_cents(db.session, payment)
+        payment_rows.append(
+            {
+                "payment": payment,
+                "unallocated_cents": unallocated_cents,
+                "allocated_cents": payment.amount_cents - unallocated_cents,
+                "allocations": sorted(
+                    payment.allocations,
+                    key=lambda allocation: (
+                        allocation.shipment.shipment_date,
+                        allocation.shipment.id,
+                        allocation.id,
+                    ),
+                ),
+            }
+        )
     return render_template(
         "customer_ledger.html",
         customer=customer,
@@ -487,12 +533,45 @@ def customer_ledger(customer_id: int):
         shipment_page=shipment_page,
         payment_page=payment_page,
         token=_new_token(),
+        back_url=url_for("main.customers"),
+        back_label="客户列表",
     )
 
 
 def _export_path(filename: str):
-    directory = current_app.config["EXPORTS_DIR"]
-    return Path(directory) / filename
+    return next_export_path(current_app.config["EXPORTS_DIR"], filename)
+
+
+def _export_name_component(value: str) -> str:
+    """Keep a customer-derived export filename safe on Windows without changing Sheet names."""
+
+    forbidden = '<>:"/\\|?*'
+    cleaned = "".join("_" if ord(char) < 32 or char in forbidden else char for char in value)
+    cleaned = cleaned.strip().rstrip(" .") or "客户"
+    reserved = {
+        "con",
+        "prn",
+        "aux",
+        "nul",
+        *(f"com{index}" for index in range(1, 10)),
+        *(f"lpt{index}" for index in range(1, 10)),
+    }
+    if cleaned.casefold().split(".", 1)[0] in reserved:
+        cleaned = f"{cleaned}_"
+    return cleaned
+
+
+def _export_response(path: Path, title: str, *, back_url: str, back_label: str):
+    if request.args.get("feedback") == "1":
+        return render_template(
+            "export_success.html",
+            title=title,
+            filename=path.name,
+            directory=str(path.parent),
+            back_url=back_url,
+            back_label=back_label,
+        )
+    return send_file(path, as_attachment=True, download_name=path.name)
 
 
 @main_bp.get("/customers/<int:customer_id>/export.xlsx")
@@ -501,14 +580,23 @@ def export_customer(customer_id: int):
     try:
         _create_application_backup("before_export")
         path = export_customer_workbook(
-            db.session, customer.id, _export_path(f"customer-{customer.id}.xlsx")
+            db.session,
+            customer.id,
+            _export_path(
+                f"{_export_name_component(customer.name)}_客户账目_{date.today():%Y%m%d}.xlsx"
+            ),
         )
     except BackupError as exc:
         return f"导出未完成：{exc}", 503
     except (ExportError, OSError):
         db.session.rollback()
         return "导出未完成，请检查本机导出目录后重试。", 400
-    return send_file(path, as_attachment=True, download_name=f"{customer.name}.xlsx")
+    return _export_response(
+        path,
+        "客户账目导出成功",
+        back_url=url_for("main.customer_ledger", customer_id=customer.id),
+        back_label="客户账目",
+    )
 
 
 @main_bp.get("/exports/summary.xlsx")
@@ -520,13 +608,22 @@ def export_summary():
         return str(exc), 400
     try:
         _create_application_backup("before_export")
-        path = export_summary_workbook(db.session, _export_path("customer-summary.xlsx"), cutoff)
+        path = export_summary_workbook(
+            db.session,
+            _export_path(f"客户汇总总表_{cutoff:%Y%m%d}.xlsx"),
+            cutoff,
+        )
     except BackupError as exc:
         return f"导出未完成：{exc}", 503
     except (ExportError, OSError):
         db.session.rollback()
         return "导出未完成，请检查本机导出目录后重试。", 400
-    return send_file(path, as_attachment=True, download_name="客户汇总总表.xlsx")
+    return _export_response(
+        path,
+        "客户汇总导出成功",
+        back_url=url_for("main.summary"),
+        back_label="客户汇总总表",
+    )
 
 
 @main_bp.get("/exports/all-ledgers.xlsx")
@@ -539,14 +636,52 @@ def export_all_ledgers():
     try:
         _create_application_backup("before_export")
         path = export_all_ledger_workbook(
-            db.session, _export_path("all-customer-ledgers.xlsx"), cutoff
+            db.session,
+            _export_path(f"客户账目总表_{cutoff:%Y%m%d}.xlsx"),
+            cutoff,
         )
     except BackupError as exc:
         return f"导出未完成：{exc}", 503
     except (ExportError, OSError):
         db.session.rollback()
         return "导出未完成，请检查本机导出目录后重试。", 400
-    return send_file(path, as_attachment=True, download_name="客户账目总表.xlsx")
+    return _export_response(
+        path,
+        "全部账目导出成功",
+        back_url=url_for("main.summary"),
+        back_label="客户汇总总表",
+    )
+
+
+@main_bp.route("/settings/export", methods=["GET", "POST"])
+def export_settings():
+    default_directory = Path(
+        current_app.config.get("DEFAULT_EXPORTS_DIR", current_app.config["EXPORTS_DIR"])
+    ).resolve()
+    error = None
+    if request.method == "POST":
+        action = request.form.get("action", "save")
+        requested = (
+            default_directory
+            if action == "reset"
+            else request.form.get("export_directory", "").strip()
+        )
+        try:
+            selected = validate_export_directory(requested)
+            save_export_directory(current_app.config["SETTINGS_PATH"], selected)
+            current_app.config["EXPORTS_DIR"] = str(selected)
+            flash(f"导出文件夹已设置为：{selected}", "success")
+            return redirect(url_for("main.export_settings"))
+        except SettingsError as exc:
+            error = str(exc)
+    return render_template(
+        "export_settings.html",
+        current_directory=Path(current_app.config["EXPORTS_DIR"]).resolve(),
+        default_directory=default_directory,
+        error=error,
+        back_url=url_for("main.index"),
+        back_label="首页",
+    )
 
 
 @main_bp.get("/backups")
@@ -575,12 +710,19 @@ def restore_backup(manifest_filename: str):
     except BackupError as exc:
         return _render_backups(f"备份不可恢复：{exc}"), 400
     if request.method == "GET":
-        return render_template("restore_confirm.html", backup=selected)
+        return render_template(
+            "restore_confirm.html",
+            backup=selected,
+            back_url=url_for("main.backups"),
+            back_label="备份恢复",
+        )
     if request.form.get("confirm_restore") != "yes":
         return render_template(
             "restore_confirm.html",
             backup=selected,
             error="请勾选二次确认后再恢复。",
+            back_url=url_for("main.backups"),
+            back_label="备份恢复",
         ), 400
     def finalize_restore():
         """Validate and record completion before restore_database reports success."""
@@ -642,7 +784,7 @@ _AUDIT_OBJECT_LABELS = {
     "customer": "客户",
     "shipment": "发货",
     "payment": "收款",
-    "payment_allocation": "收款分配",
+    "payment_allocation": "收款对应货款",
     "legacy_import": "旧账迁移",
     "backup": "备份",
     "restore": "恢复",
@@ -677,7 +819,12 @@ def audit():
         }
         for event in events
     ]
-    return render_template("audit.html", audit_rows=rows)
+    return render_template(
+        "audit.html",
+        audit_rows=rows,
+        back_url=url_for("main.index"),
+        back_label="首页",
+    )
 
 
 @main_bp.route("/imports/legacy", methods=["GET", "POST"])
@@ -750,6 +897,8 @@ def legacy_import():
         source_path=source_path,
         payment_confirmation_rows=payment_confirmation_rows,
         payment_methods=PAYMENT_METHODS,
+        back_url=url_for("main.index"),
+        back_label="首页",
     )
 
 
@@ -797,6 +946,12 @@ def new_payment():
         error=error,
         token=token,
         payment_methods=PAYMENT_METHODS,
+        back_url=(
+            url_for("main.customer_ledger", customer_id=int(selected_customer_id))
+            if str(selected_customer_id).isdigit()
+            else url_for("main.index")
+        ),
+        back_label="客户账目" if str(selected_customer_id).isdigit() else "首页",
     )
 
 
@@ -851,7 +1006,7 @@ def allocate_payment_route(payment_id: int):
         [allocation],
         request.form.get("submission_token", ""),
     )
-    flash(error or "收款分配已保存。", "error" if error else "success")
+    flash(error or "收款已对应到货款。", "error" if error else "success")
     return redirect(url_for("main.customer_ledger", customer_id=customer_id))
 
 
@@ -867,7 +1022,7 @@ def void_payment_route(payment_id: int):
         payment_id,
         request.form.get("submission_token", ""),
     )
-    flash(error or "收款已作废，相关分配已撤销。", "error" if error else "success")
+    flash(error or "收款已作废，相关对应关系已取消。", "error" if error else "success")
     return redirect(url_for("main.customer_ledger", customer_id=customer_id))
 
 
@@ -886,7 +1041,7 @@ def revoke_allocation_route(allocation_id: int):
         allocation_id,
         request.form.get("submission_token", ""),
     )
-    flash(error or "分配已撤销，金额已回到预收。", "error" if error else "success")
+    flash(error or "对应关系已取消，金额已回到预收。", "error" if error else "success")
     return redirect(url_for("main.customer_ledger", customer_id=customer_id))
 
 
@@ -916,6 +1071,8 @@ def new_retail():
         error=error,
         token=token,
         payment_methods=PAYMENT_METHODS,
+        back_url=url_for("main.index"),
+        back_label="首页",
     )
 
 
@@ -951,4 +1108,6 @@ def summary():
         summary_rows=summary_rows,
         grand_total=grand_total,
         error=error,
+        back_url=url_for("main.index"),
+        back_label="首页",
     ), 400 if error else 200

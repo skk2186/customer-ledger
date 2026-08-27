@@ -17,6 +17,7 @@ from .backup_service import (
 )
 from .extensions import db, migrate
 from .runtime_paths import resolve_runtime_paths
+from .settings_service import load_export_directory
 from .version import __version__
 
 
@@ -31,6 +32,10 @@ def create_app(test_config: dict | None = None) -> Flask:
         static_folder=str(paths.package_root / "static"),
     )
     defaults = paths.app_config()
+    if not os.environ.get("CUSTOMER_LEDGER_EXPORTS_DIR"):
+        defaults["EXPORTS_DIR"] = str(
+            load_export_directory(paths.settings_path, paths.export_root)
+        )
     if os.environ.get("SQLALCHEMY_DATABASE_URI"):
         defaults["SQLALCHEMY_DATABASE_URI"] = os.environ["SQLALCHEMY_DATABASE_URI"]
 
@@ -44,6 +49,14 @@ def create_app(test_config: dict | None = None) -> Flask:
     )
     if test_config:
         app.config.update(test_config)
+        if "DEFAULT_EXPORTS_DIR" not in test_config and "EXPORTS_DIR" in test_config:
+            app.config["DEFAULT_EXPORTS_DIR"] = app.config["EXPORTS_DIR"]
+    if not test_config or "EXPORTS_DIR" not in test_config:
+        app.config["EXPORTS_DIR"] = str(
+            load_export_directory(
+                app.config["SETTINGS_PATH"], app.config["DEFAULT_EXPORTS_DIR"]
+            )
+        )
 
     # Import models before Alembic inspects metadata.
     from . import models  # noqa: F401

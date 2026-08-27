@@ -21,18 +21,18 @@
     <label for="description">收款说明</label>
     <textarea id="description" name="description" rows="3">{{ values.description }}</textarea>
     <fieldset>
-        <legend>收款分配</legend>
-        <label><input type="radio" name="allocation_mode" value="none"{% if values.allocation_mode == 'none' %} checked{% endif %}> 暂不分配，记作预收</label>
-        <label><input type="radio" name="allocation_mode" value="auto"{% if values.allocation_mode == 'auto' %} checked{% endif %}> 按最早未结清发货自动分配</label>
-        <label><input type="radio" name="allocation_mode" value="specified"{% if values.allocation_mode == 'specified' %} checked{% endif %}> 分配到指定发货</label>
-        <label for="shipment_id">指定发货</label>
+        <legend>收款用于哪笔货款</legend>
+        <label><input type="radio" name="allocation_mode" value="none"{% if values.allocation_mode == 'none' %} checked{% endif %}> 暂不对应，记作预收</label>
+        <label><input type="radio" name="allocation_mode" value="auto"{% if values.allocation_mode == 'auto' %} checked{% endif %}> 按最早未结清货款自动对应</label>
+        <label><input type="radio" name="allocation_mode" value="specified"{% if values.allocation_mode == 'specified' %} checked{% endif %}> 用于指定货款</label>
+        <label for="shipment_id">指定货款</label>
         <select id="shipment_id" name="shipment_id">
             <option value="">请选择发货</option>
-            {% for shipment in shipments %}<option value="{{ shipment.id }}"{% if values.shipment_id|string == shipment.id|string %} selected{% endif %}>{{ shipment.shipment_date }} · #{{ shipment.id }} · {{ shipment.total_amount_cents|yuan }} 元</option>{% endfor %}
+        {% for shipment in shipments %}<option value="{{ shipment.id }}"{% if values.shipment_id|string == shipment.id|string %} selected{% endif %}>{{ shipment.shipment_date }} · {{ shipment.total_amount_cents|yuan }} 元（记录号 {{ shipment.id }}）</option>{% endfor %}
         </select>
-        <label for="allocation_amount">指定分配金额</label>
+        <label for="allocation_amount">对应金额</label>
         <input id="allocation_amount" name="allocation_amount" inputmode="decimal" placeholder="0.00" value="{{ values.allocation_amount }}">
-        <p class="help">一笔收款可以在服务层分配到多笔发货；此页面提供最简单的一笔指定分配。</p>
+        <p class="help">一笔收款可以用于多笔发货；这里提供最简单的一笔对应操作。</p>
     </fieldset>
     <div class="form-actions"><button class="button" type="submit">保存收款</button><a href="{{ url_for('main.customers') }}">取消</a></div>
 </form>

@@ -31,6 +31,7 @@ from .runtime_paths import (
     ensure_runtime_directories,
     resolve_runtime_paths,
 )
+from .settings_service import load_export_directory
 from .version import __version__
 
 APP_TITLE = f"客户快捷填表系统 {__version__}"
@@ -39,6 +40,48 @@ MUTEX_NAME = r"Local\CustomerLedgerDesktop"
 
 class StartupError(RuntimeError):
     """A user-facing desktop startup failure."""
+
+
+class DesktopApi:
+    """Small native helpers exposed to the local desktop window."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    def choose_export_directory(self) -> str:
+        """Return a selected folder, or an empty string when the dialog is cancelled."""
+
+        try:
+            import webview
+
+            windows = getattr(webview, "windows", [])
+            if not windows:
+                return ""
+            selected = windows[0].create_file_dialog(
+                webview.FOLDER_DIALOG,
+                allow_multiple=False,
+            )
+            if not selected:
+                return ""
+            return str(Path(selected[0]).resolve())
+        except (ImportError, OSError, TypeError, AttributeError):
+            return ""
+
+    def open_export_directory(self) -> bool:
+        """Open the configured export folder in the native file manager."""
+
+        try:
+            directory = Path(self.app.config["EXPORTS_DIR"]).resolve()
+            directory.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(str(directory))
+            else:
+                import webbrowser
+
+                webbrowser.open(directory.as_uri())
+            return True
+        except (OSError, ValueError):
+            return False
 
 
 class SingleInstance:
@@ -199,7 +242,11 @@ def prepare_desktop_application(
         locked = safety_lock_exists(paths.safety_lock_path)
     except (BackupError, OSError) as exc:
         raise _startup_error("无法准备本机数据目录，请检查目录权限后重试。") from exc
-    app = create_app(paths.app_config())
+    app_config = paths.app_config()
+    app_config["EXPORTS_DIR"] = str(
+        load_export_directory(paths.settings_path, paths.export_root)
+    )
+    app = create_app(app_config)
     if not locked:
         initialize_database(app, paths)
     return app, paths
@@ -350,7 +397,14 @@ def run_desktop() -> int:
             import webview
         except ImportError as exc:
             raise _startup_error("桌面窗口组件未安装，无法启动客户快捷填表系统。") from exc
-        webview.create_window(APP_TITLE, server.url, width=1280, height=820, min_size=(900, 600))
+        webview.create_window(
+            APP_TITLE,
+            server.url,
+            width=1280,
+            height=820,
+            min_size=(900, 600),
+            js_api=DesktopApi(app),
+        )
         webview.start(debug=False)
         return 0
     except StartupError as exc:

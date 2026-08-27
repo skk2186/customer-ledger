@@ -16,6 +16,8 @@ def app(tmp_path):
             "BACKUP_DIR": str(tmp_path / "backups"),
             "SAFETY_LOCK_PATH": str(tmp_path / "WRITE_BLOCKED"),
             "EXPORTS_DIR": str(tmp_path / "exports"),
+            "DEFAULT_EXPORTS_DIR": str(tmp_path / "exports"),
+            "SETTINGS_PATH": str(tmp_path / "settings.json"),
             "IMPORT_REPORT_DIR": str(tmp_path / "import_reports"),
         }
     )

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}导出设置 - 客户快捷填表系统{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">导出管理</p><h1>导出设置</h1></div></div>
+<p class="help">导出设置只保存在本机设置文件中，不会写入账库，也不会影响账库、备份或保护状态。</p>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+<form class="card form wide-form" method="post">
+    <label for="export_directory">当前导出文件夹</label>
+    <input id="export_directory" name="export_directory" value="{{ current_directory }}" required>
+    <p class="help">默认文件夹：{{ default_directory }}</p>
+    <div class="form-actions settings-actions">
+        <button class="button" id="choose-export-directory" type="button">选择导出文件夹</button>
+        <button class="button secondary" name="action" value="save" type="submit">保存导出文件夹</button>
+        <button class="button secondary" name="action" value="reset" type="submit">恢复默认文件夹</button>
+        <button class="button secondary" id="open-export-directory" type="button">打开导出文件夹</button>
+    </div>
+    <p class="help" id="directory-picker-help" hidden>当前环境没有原生选择器，请直接填写完整文件夹路径后保存。</p>
+</form>
+<script>
+(() => {
+    const input = document.getElementById('export_directory');
+    const choose = document.getElementById('choose-export-directory');
+    const open = document.getElementById('open-export-directory');
+    const help = document.getElementById('directory-picker-help');
+    const api = () => window.pywebview && window.pywebview.api ? window.pywebview.api : null;
+    choose?.addEventListener('click', async () => {
+        const nativeApi = api();
+        if (!nativeApi || !nativeApi.choose_export_directory) {
+            if (help) help.hidden = false;
+            return;
+        }
+        const selected = await nativeApi.choose_export_directory();
+        if (selected && input) input.value = selected;
+    });
+    open?.addEventListener('click', async () => {
+        const nativeApi = api();
+        if (!nativeApi || !nativeApi.open_export_directory) {
+            if (help) help.hidden = false;
+            return;
+        }
+        const opened = await nativeApi.open_export_directory();
+        if (!opened && help) help.hidden = false;
+    });
+})();
+</script>
+{% endblock %}

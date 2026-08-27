@@ -27,6 +27,7 @@ class RuntimePaths:
     database_path: Path
     backup_root: Path
     export_root: Path
+    settings_path: Path
     safety_lock_path: Path
     frozen: bool
 
@@ -46,6 +47,8 @@ class RuntimePaths:
             "SQLALCHEMY_DATABASE_URI": self.database_uri,
             "BACKUP_DIR": str(self.backup_root),
             "EXPORTS_DIR": str(self.export_root),
+            "DEFAULT_EXPORTS_DIR": str(self.export_root),
+            "SETTINGS_PATH": str(self.settings_path),
             "SAFETY_LOCK_PATH": str(self.safety_lock_path),
         }
 
@@ -155,6 +158,9 @@ def resolve_runtime_paths(
             documents_root / EXPORT_FOLDER_NAME if frozen else project_root / "exports",
         )
     ).resolve()
+    settings_path = Path(
+        env.get("CUSTOMER_LEDGER_SETTINGS_PATH", data_root / "settings.json")
+    ).resolve()
     migrations_root = Path(
         env.get(
             "CUSTOMER_LEDGER_MIGRATIONS_DIR",
@@ -176,6 +182,7 @@ def resolve_runtime_paths(
         database_path=database_path,
         backup_root=backup_root,
         export_root=export_root,
+        settings_path=settings_path,
         safety_lock_path=safety_lock_path,
         frozen=frozen,
     )

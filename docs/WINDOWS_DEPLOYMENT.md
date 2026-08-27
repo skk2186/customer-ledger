@@ -1,8 +1,8 @@
 # Windows 桌面版部署说明
 
-## 发布包
+## 正式版发布包
 
-发布候选采用 PyInstaller onedir 目录，入口为：
+当前版本：1.0.1。正式版采用 PyInstaller onedir 目录，入口为：
 
     dist\CustomerLedger\CustomerLedger.exe
 

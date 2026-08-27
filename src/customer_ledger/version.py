@@ -1,3 +1,3 @@
-"""Single source for the release candidate version."""
+"""Single source for the application version."""
 
-__version__ = "1.0.0rc1"
+__version__ = "1.0.1"

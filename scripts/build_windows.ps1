@@ -75,6 +75,6 @@ if ($forbidden) {
 $sizeBytes = (Get-ChildItem -LiteralPath $candidateRoot -Recurse -File |
     Measure-Object -Property Length -Sum).Sum
 $sizeMiB = [Math]::Round($sizeBytes / 1MB, 2)
-Write-Host "Windows release candidate built: $candidateRoot"
+Write-Host "Windows release built: $candidateRoot"
 Write-Host "EXE: $exe"
 Write-Host "Directory size: $sizeMiB MiB"

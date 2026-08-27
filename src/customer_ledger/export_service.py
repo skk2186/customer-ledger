@@ -234,7 +234,6 @@ def _write_customer_sheet(
             elif column in QUANTITY_COLUMNS:
                 cell.number_format = _QUANTITY_FORMAT
     _write_customer_total(sheet, len(rows) + 3)
-    sheet.freeze_panes = "A3"
     _finish_sheet(sheet, CUSTOMER_HEADERS, CUSTOMER_COLUMN_WIDTHS, header_row=2)
 
 
@@ -302,7 +301,6 @@ def _write_summary_sheet(session, workbook: Workbook, as_of: date) -> None:
         cell.font = Font(bold=True)
         cell.fill = _TOTAL_FILL
         cell.border = _BORDER
-    sheet.freeze_panes = "A2"
     _finish_sheet(sheet, SUMMARY_HEADERS, SUMMARY_COLUMN_WIDTHS, header_row=1)
 
 

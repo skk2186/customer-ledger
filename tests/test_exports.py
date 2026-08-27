@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from zipfile import ZipFile
 
 from openpyxl import load_workbook
 
@@ -57,9 +58,21 @@ def _exported_date(value):
 def _assert_readback_is_plain_xlsx(workbook) -> None:
     assert workbook._external_links == []
     assert workbook.vba_archive is None
+    assert all(sheet.freeze_panes is None for sheet in workbook.worksheets)
     for sheet in workbook.worksheets:
         for row in sheet.iter_rows():
             assert all(cell.data_type != "f" for cell in row)
+
+
+def _assert_ooxml_has_no_panes(path) -> None:
+    with ZipFile(path) as archive:
+        worksheet_xml = [
+            name
+            for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        ]
+        assert worksheet_xml
+        assert all(b"<pane" not in archive.read(name) for name in worksheet_xml)
 
 
 def test_customer_export_has_allocated_and_prepayment_rows(tmp_path, app):
@@ -77,6 +90,8 @@ def test_customer_export_has_allocated_and_prepayment_rows(tmp_path, app):
 
         workbook = load_workbook(path, data_only=False)
         sheet = workbook[customer.name]
+        assert sheet.freeze_panes is None
+        _assert_ooxml_has_no_panes(path)
         assert list(sheet.iter_rows(min_row=2, max_row=2, values_only=True))[0] == CUSTOMER_HEADERS
         assert sheet["A1"].value == customer.name
         assert "A1:M1" in {str(item) for item in sheet.merged_cells.ranges}
@@ -109,6 +124,8 @@ def test_summary_and_all_ledger_exports_have_contract_order(tmp_path, app):
         all_path = export_all_ledger_workbook(db.session, tmp_path / "all.xlsx", date(2026, 5, 31))
 
         summary_sheet = load_workbook(summary_path, data_only=True)["客户汇总总表"]
+        assert summary_sheet.freeze_panes is None
+        _assert_ooxml_has_no_panes(summary_path)
         assert (
             list(summary_sheet.iter_rows(min_row=1, max_row=1, values_only=True))[0]
             == SUMMARY_HEADERS
@@ -118,6 +135,8 @@ def test_summary_and_all_ledger_exports_have_contract_order(tmp_path, app):
         assert _number(summary_sheet["K2"].value) == Decimal("-200")
         assert _number(summary_sheet["J3"].value) == Decimal("1200")
         all_workbook = load_workbook(all_path, data_only=True)
+        _assert_readback_is_plain_xlsx(all_workbook)
+        _assert_ooxml_has_no_panes(all_path)
         assert all_workbook.sheetnames[0] == "客户汇总总表"
         assert customer.name in all_workbook.sheetnames
 
@@ -230,6 +249,7 @@ def test_complex_export_readback_covers_split_payments_negative_values_cutoff_an
         path = export_all_ledger_workbook(db.session, tmp_path / "complex-cutoff.xlsx", cutoff)
         workbook = load_workbook(path, data_only=True)
         _assert_readback_is_plain_xlsx(workbook)
+        _assert_ooxml_has_no_panes(path)
         assert workbook.sheetnames[0] == "客户汇总总表"
         assert archived.name in workbook.sheetnames
         sheet = workbook[customer.name]
@@ -276,6 +296,7 @@ def test_complex_export_readback_covers_split_payments_negative_values_cutoff_an
         )
         later_workbook = load_workbook(later_path, data_only=True)
         _assert_readback_is_plain_xlsx(later_workbook)
+        _assert_ooxml_has_no_panes(later_path)
         later_sheet = later_workbook[customer.name]
         later_dates = {
             _exported_date(later_sheet.cell(row, 1).value): row

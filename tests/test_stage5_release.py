@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -17,6 +18,7 @@ from customer_ledger.backup_service import (
     current_schema_version,
     list_backups,
     safety_lock_exists,
+    write_safety_lock,
 )
 from customer_ledger.customer_service import create_customer
 from customer_ledger.desktop import (
@@ -24,6 +26,7 @@ from customer_ledger.desktop import (
     SingleInstance,
     StartupError,
     initialize_database,
+    prepare_desktop_application,
 )
 from customer_ledger.extensions import db
 from customer_ledger.models import Customer
@@ -193,6 +196,68 @@ def test_migration_rollback_failure_creates_safety_lock(tmp_path, monkeypatch):
     with app.app_context():
         db.session.remove()
         db.engine.dispose()
+    with locked_app.app_context():
+        db.session.remove()
+        db.engine.dispose()
+
+
+def test_desktop_restart_with_safety_lock_skips_database_initialization(
+    tmp_path, monkeypatch
+):
+    paths = _temporary_paths(tmp_path)
+    ensure_runtime_directories(paths)
+    app = create_app({**paths.app_config(), "TESTING": True})
+    initialize_database(app, paths)
+
+    with app.app_context():
+        customer = create_customer(db.session, "Desktop Safety Lock Customer")
+        db.session.commit()
+        customer_id = customer.id
+        db.session.remove()
+        db.engine.dispose()
+
+    write_safety_lock(
+        paths.safety_lock_path,
+        reason_code="migration_rollback_failed",
+        error_category="migration",
+    )
+    before_hash = hashlib.sha256(paths.database_path.read_bytes()).hexdigest()
+    before_backup_count = len(list_backups(paths.backup_root))
+
+    def unexpected_database_initialization(*_args, **_kwargs):
+        pytest.fail("initialize_database must be skipped while WRITE_BLOCKED exists")
+
+    monkeypatch.setattr(desktop, "initialize_database", unexpected_database_initialization)
+    locked_app, locked_paths = prepare_desktop_application(
+        env={
+            "CUSTOMER_LEDGER_DATA_ROOT": str(paths.data_root),
+            "CUSTOMER_LEDGER_BACKUP_DIR": str(paths.backup_root),
+            "CUSTOMER_LEDGER_EXPORTS_DIR": str(paths.export_root),
+            "CUSTOMER_LEDGER_IMPORT_REPORT_DIR": str(paths.import_reports_root),
+            "CUSTOMER_LEDGER_LOG_DIR": str(paths.logs_root),
+            "CUSTOMER_LEDGER_SAFETY_LOCK_PATH": str(paths.safety_lock_path),
+        },
+        frozen=False,
+        documents_root=tmp_path / "Documents",
+    )
+
+    with locked_app.test_client() as client:
+        assert client.get("/customers/new").status_code == 200
+        assert (
+            client.post(
+                "/customers/new",
+                data={"name": "Blocked Desktop Synthetic Customer", "notes": ""},
+            ).status_code
+            == 503
+        )
+        assert client.get(f"/customers/{customer_id}/export.xlsx").status_code == 503
+
+    after_hash = hashlib.sha256(paths.database_path.read_bytes()).hexdigest()
+    assert before_hash == after_hash
+    assert locked_paths.database_path == paths.database_path
+    assert safety_lock_exists(paths.safety_lock_path)
+    assert len(list_backups(paths.backup_root)) == before_backup_count
+
     with locked_app.app_context():
         db.session.remove()
         db.engine.dispose()

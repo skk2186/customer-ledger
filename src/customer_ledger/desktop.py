@@ -196,11 +196,12 @@ def prepare_desktop_application(
     )
     try:
         ensure_runtime_directories(paths)
-        safety_lock_exists(paths.safety_lock_path)
+        locked = safety_lock_exists(paths.safety_lock_path)
     except (BackupError, OSError) as exc:
         raise _startup_error("无法准备本机数据目录，请检查目录权限后重试。") from exc
     app = create_app(paths.app_config())
-    initialize_database(app, paths)
+    if not locked:
+        initialize_database(app, paths)
     return app, paths
 
 

@@ -27,7 +27,7 @@
 
 ## 自动化测试与命令
 
-- 阶段五共 10 项自动化测试；最终全部测试结果为 86 passed。
+- 阶段五共 11 项自动化测试；最终全部测试结果为 87 passed。
 - ruff check .：PASS，输出 All checks passed!。
 - flask db upgrade：PASS。
 - 第二次 flask db upgrade：PASS，重复执行安全。
@@ -48,6 +48,7 @@
 - 手动备份、增加合成记录、恢复备份并核对恢复结果：PASS。
 - 暂未付款快捷操作：PASS，账目中无收款记录。
 - 保护标记：PASS，写入和导出均被阻止。
+- 安全锁优先于桌面数据库初始化：PASS。`WRITE_BLOCKED` 存在时跳过 migration 和 migration 前备份，不修改数据库；重启后锁仍生效，只读页面可访问，写入和导出仍返回 503。
 - 第二实例：PASS，被单实例保护拦截。
 - 关闭后重启并读取同一账库：PASS。
 - 复制程序目录、保留用户数据目录后重新启动：PASS。
@@ -61,11 +62,12 @@
 
 - 修复原因：阶段五验收发现迁移失败保护、启动诊断脱敏和完全断网的干净 Windows 证据仍需补齐；原 Sandbox 验收脚本的编码和部分文案断言也需要修正。
 - 修复内容：迁移失败时释放数据库连接并从升级前备份恢复；回滚失败持久化 `migration_rollback_failed` 写保护并在重启后阻止写入和导出；启动日志改为有限结构化安全记录；构建脚本安装开发、发布和构建依赖且不依赖不安全镜像配置。
-- 新增测试：`test_partial_migration_failure_restores_original_database`、`test_migration_rollback_failure_creates_safety_lock`、启动日志结构化脱敏测试；补充发布候选和 Sandbox 回归检查。
-- 实际测试数量：全部 pytest 86 passed；ruff check . PASS；两次 flask db upgrade 和 flask db check PASS。
+- 新增测试：`test_partial_migration_failure_restores_original_database`、`test_migration_rollback_failure_creates_safety_lock`、`test_desktop_restart_with_safety_lock_skips_database_initialization`、启动日志结构化脱敏测试；补充发布候选和 Sandbox 回归检查。
+- 实际测试数量：全部 pytest 87 passed；ruff check . PASS；两次 flask db upgrade 和 flask db check PASS。
 - Windows Sandbox 完整 E2E：`Networking=Disable` 单一会话中完成启动、合成客户、暂未付款发货、收款及分配、超额收款、未分配预收、第二笔发货、预收分配、账目页脚、汇总、三份 XLSX 导出、手工备份、合成修改、恢复、审计、正常关闭和重启持久化；无 Python、无虚拟环境、无源码路径，全部 PASS。
 - 手工验收结果：候选程序启动、备份恢复、审计、第二实例保护、持久安全锁、程序目录替换、三份工作簿及 WPS 打开均 PASS；Excel 默认打开方式保持不变，未修改用户办公软件设置。
 - 旧账 Dry Run：仅对已授权旧表执行预览，源文件摘要保持不变，未执行导入。
-- 未创建新分支、PR 或远程推送；不创建 GitHub Release。最终本地提交信息为 `fix stage 5: complete release safety acceptance`。
+- 安全锁启动真实冒烟：PASS。使用合成数据和隔离测试目录重启最终 EXE；`WRITE_BLOCKED` 保持存在，安全只读页面可访问，写入和导出均被阻止，数据库 SHA-256 与启动前一致，migration 前备份数量未增加；测试目录已清理。
+- 未创建新分支、PR 或远程推送；不创建 GitHub Release。最终本地修复提交信息为 `fix stage 5: honor safety lock before migration`。
 
 最终结论：PASS。

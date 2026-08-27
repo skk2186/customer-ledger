@@ -24,7 +24,7 @@
 | 启动诊断日志 | PASS | 启动日志为有限结构化记录，仅保留类别、类型和安全摘要，不含异常全文、路径、SQL 或客户数据 |
 | 旧账 .xls Dry Run | PASS | 仅使用已授权的 2 个真实旧表做 Dry Run；源文件摘要未改变，未执行导入 |
 | 用户可见英文清理 | PASS | 阶段二界面英文关键词和装饰性英文扫描无命中 |
-| 全部 pytest | PASS | 87 passed |
+| 阶段五历史基线 pytest | PASS | 87 passed（历史基线，不代表当前 V1.0.2 回归数量） |
 | ruff | PASS | ruff check . 通过，输出 All checks passed! |
 | 迁移重复执行和检查 | PASS | flask db upgrade 两次均成功，flask db check 成功 |
 | Git 与发布包敏感文件检查 | PASS | 未发现已跟踪运行数据库、旧表、工作簿、日志、备份或发布运行产物 |
@@ -42,3 +42,35 @@
 **PASS**。最终定向修复、代码、构建、干净 Windows、断网、本机合成流程、备份恢复、重启持久化和 WPS 打开均已通过，可以创建最终本地修复提交。
 
 按要求只创建本地提交，不 push、不创建 PR、不创建 GitHub Release。
+
+## V1.0.2 Excel 首次打开兼容性修复
+
+- 问题：客户 Sheet 冻结第 1、2 行时，部分 Excel/WPS 在首次打开工作簿可能出现重复窗格显示，表现为标题和表头重复。
+- 修复：完全移除客户 Sheet 与汇总 Sheet 的 freeze panes；未引入拆分窗格或其他窗格配置。
+- 自动检查：客户账目工作簿、客户汇总总表以及全部客户账目的所有 worksheet 均为 `freeze_panes is None`；对应 worksheet OOXML 均不含 `<pane>`。客户账目、客户汇总、全部客户账目的检查结果均为 PASS。
+- 测试数据：使用独立合成数据，包含一个客户、3 条以上发货、收款、合计，以及客户账目、客户汇总和全部客户账目三份导出文件；未使用真实客户数据库或真实业务数据。
+
+### 真实 Excel/WPS 验收
+
+| 项目 | 状态 | 结果 |
+| --- | --- | --- |
+| Excel 首次打开 | PASS | 直接打开客户账目工作簿，行号连续，标题和表头各出现一次 |
+| WPS 首次打开 | PASS | 显式使用 WPS 表格打开客户账目工作簿，行号连续，标题和表头各出现一次 |
+| 打开第二个工作簿后切换 | PASS | Excel、WPS 均完成关闭重开、打开第二个工作簿和来回切换 |
+| 最大化/还原 | PASS | Excel、WPS 均完成最大化和还原，未出现重复窗格 |
+| 上下滚动 | PASS | Excel、WPS 均完成滚动，未出现标题/表头重复或单元格重叠 |
+| 重复标题/表头 | PASS | 未复现 |
+| 冻结横线/拆分窗格 | PASS | 未复现 |
+| `#####` | PASS | 未复现 |
+
+### 当前 V1.0.2 回归
+
+- pytest：PASS，95 passed（当前实际数量；87 passed 已标注为阶段五历史基线）。
+- ruff：PASS，`ruff check .` 通过。
+- `flask db upgrade` ×2：PASS。
+- `flask db check`：PASS。
+- Windows build：PASS；最终 `dist\\CustomerLedger\\CustomerLedger.exe` 构建成功。
+- EXE 标题：PASS，显示“客户快捷填表系统 1.0.2”。
+- Git 与敏感文件检查：PASS；未提交数据库、工作簿、日志、备份、运行数据或发布产物。
+
+本节真实 Excel/WPS 首次打开兼容性验收结果为 **PASS**。
